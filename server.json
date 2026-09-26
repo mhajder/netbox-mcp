@@ -1,0 +1,440 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mhajder/netbox-mcp",
+  "description": "MCP server for NetBox DCIM/IPAM with read-only and dry-run modes",
+  "title": "NetBox MCP",
+  "websiteUrl": "https://github.com/mhajder/netbox-mcp",
+  "repository": {
+    "url": "https://github.com/mhajder/netbox-mcp",
+    "source": "github"
+  },
+  "version": "0.0.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "netbox-mcp",
+      "version": "0.0.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "NETBOX_URL",
+          "description": "NetBox base URL (e.g., https://netbox.example.com)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "NETBOX_TOKEN",
+          "description": "NetBox API token: v2 (nbt_<key>.<token>, NetBox 4.5+) or legacy v1",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "NETBOX_VERIFY_SSL",
+          "description": "Verify SSL certificates (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "true"
+        },
+        {
+          "name": "NETBOX_TIMEOUT",
+          "description": "Total time allowed for one NetBox request, retries included (seconds)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "30"
+        },
+        {
+          "name": "NETBOX_BRANCHING_ENABLED",
+          "description": "Enable netbox-branching support: branch tools and the 'branch' argument (requires the netbox-branching plugin) (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "NETBOX_BRANCH",
+          "description": "Default netbox-branching branch (name or schema ID) for every call; requires NETBOX_BRANCHING_ENABLED=true",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "NETBOX_PLUGIN_DISCOVERY",
+          "description": "Discover plugin object types from /api/core/object-types/ (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "description": "Hide all write tools (create, update, delete) (true/false)",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DRY_RUN_MODE",
+          "description": "Write tools only simulate changes and never modify NetBox (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "DISABLED_TAGS",
+          "description": "Comma-separated tool tags to disable (e.g. delete,graphql,branching)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+          "default": "INFO",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RESPONSE_MAX_SIZE",
+          "description": "Maximum tool response size in bytes (unset = unlimited)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_ENABLED",
+          "description": "Enable rate limiting",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_MAX_REQUESTS",
+          "description": "Maximum requests per rate limit window",
+          "default": "60",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_WINDOW_MINUTES",
+          "description": "Rate limit window in minutes",
+          "default": "1",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_ENABLED",
+          "description": "Enable FastMCP tool search transform",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_STRATEGY",
+          "description": "Tool search strategy (bm25 or regex)",
+          "default": "bm25",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_MAX_RESULTS",
+          "description": "Maximum tool search results returned by search_tools",
+          "default": "5",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    },
+    {
+      "registryType": "pypi",
+      "identifier": "netbox-mcp",
+      "version": "0.0.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:{MCP_HTTP_PORT}/mcp"
+      },
+      "environmentVariables": [
+        {
+          "name": "NETBOX_URL",
+          "description": "NetBox base URL (e.g., https://netbox.example.com)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "NETBOX_TOKEN",
+          "description": "NetBox API token: v2 (nbt_<key>.<token>, NetBox 4.5+) or legacy v1",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "NETBOX_VERIFY_SSL",
+          "description": "Verify SSL certificates (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "true"
+        },
+        {
+          "name": "NETBOX_TIMEOUT",
+          "description": "Total time allowed for one NetBox request, retries included (seconds)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "30"
+        },
+        {
+          "name": "NETBOX_BRANCHING_ENABLED",
+          "description": "Enable netbox-branching support: branch tools and the 'branch' argument (requires the netbox-branching plugin) (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "NETBOX_BRANCH",
+          "description": "Default netbox-branching branch (name or schema ID) for every call; requires NETBOX_BRANCHING_ENABLED=true",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "NETBOX_PLUGIN_DISCOVERY",
+          "description": "Discover plugin object types from /api/core/object-types/ (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "description": "Hide all write tools (create, update, delete) (true/false)",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DRY_RUN_MODE",
+          "description": "Write tools only simulate changes and never modify NetBox (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "DISABLED_TAGS",
+          "description": "Comma-separated tool tags to disable (e.g. delete,graphql,branching)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+          "default": "INFO",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RESPONSE_MAX_SIZE",
+          "description": "Maximum tool response size in bytes (unset = unlimited)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_ENABLED",
+          "description": "Enable rate limiting",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_MAX_REQUESTS",
+          "description": "Maximum requests per rate limit window",
+          "default": "60",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_WINDOW_MINUTES",
+          "description": "Rate limit window in minutes",
+          "default": "1",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_ENABLED",
+          "description": "Enable FastMCP tool search transform",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_STRATEGY",
+          "description": "Tool search strategy (bm25 or regex)",
+          "default": "bm25",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_MAX_RESULTS",
+          "description": "Maximum tool search results returned by search_tools",
+          "default": "5",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_HTTP_PORT",
+          "description": "Port for HTTP server (default: 8000)",
+          "default": "8000",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_TRANSPORT",
+          "description": "MCP transport type (http for HTTP, stdio for stdio)",
+          "value": "http",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/mhajder/netbox-mcp:0.0.1",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:{MCP_HTTP_PORT}/mcp"
+      },
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-p",
+          "value": "{MCP_HTTP_PORT}:8000",
+          "description": "Port mapping for HTTP transport",
+          "isRequired": true
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "NETBOX_URL",
+          "description": "NetBox base URL (e.g., https://netbox.example.com)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "NETBOX_TOKEN",
+          "description": "NetBox API token: v2 (nbt_<key>.<token>, NetBox 4.5+) or legacy v1",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "NETBOX_VERIFY_SSL",
+          "description": "Verify SSL certificates (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "true"
+        },
+        {
+          "name": "NETBOX_TIMEOUT",
+          "description": "Total time allowed for one NetBox request, retries included (seconds)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "30"
+        },
+        {
+          "name": "NETBOX_BRANCHING_ENABLED",
+          "description": "Enable netbox-branching support: branch tools and the 'branch' argument (requires the netbox-branching plugin) (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "NETBOX_BRANCH",
+          "description": "Default netbox-branching branch (name or schema ID) for every call; requires NETBOX_BRANCHING_ENABLED=true",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "NETBOX_PLUGIN_DISCOVERY",
+          "description": "Discover plugin object types from /api/core/object-types/ (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "description": "Hide all write tools (create, update, delete) (true/false)",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DRY_RUN_MODE",
+          "description": "Write tools only simulate changes and never modify NetBox (true/false)",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "false"
+        },
+        {
+          "name": "DISABLED_TAGS",
+          "description": "Comma-separated tool tags to disable (e.g. delete,graphql,branching)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+          "default": "INFO",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RESPONSE_MAX_SIZE",
+          "description": "Maximum tool response size in bytes (unset = unlimited)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_ENABLED",
+          "description": "Enable rate limiting",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_MAX_REQUESTS",
+          "description": "Maximum requests per rate limit window",
+          "default": "60",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_WINDOW_MINUTES",
+          "description": "Rate limit window in minutes",
+          "default": "1",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_ENABLED",
+          "description": "Enable FastMCP tool search transform",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_STRATEGY",
+          "description": "Tool search strategy (bm25 or regex)",
+          "default": "bm25",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_MAX_RESULTS",
+          "description": "Maximum tool search results returned by search_tools",
+          "default": "5",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_HTTP_PORT",
+          "description": "Port for HTTP server (default: 8000)",
+          "default": "8000",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
