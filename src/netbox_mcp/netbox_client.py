@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -6,6 +7,7 @@ from typing import Any
 from typing import ClassVar
 
 import httpx2
+from fastmcp.server.dependencies import get_access_token
 
 from netbox_mcp.filters import QueryPairs
 from netbox_mcp.filters import encode_params
@@ -15,6 +17,7 @@ from netbox_mcp.object_types import plugin_object_types
 from netbox_mcp.object_types import resolve_object_type
 from netbox_mcp.object_types import set_plugin_object_types
 from netbox_mcp.retry import build_client
+from netbox_mcp.retry import parse_retry_after
 from netbox_mcp.retry import shared_transport
 from netbox_mcp.utils import http_host_from_env
 from netbox_mcp.utils import http_port_from_env
@@ -49,19 +52,66 @@ PRE_SEND_ERRORS = (
 )
 
 
+# Most per-caller entries kept in each class-level cache before the oldest go.
+CALLER_CACHE_LIMIT = 4096
+
+
+def token_fingerprint(token: str) -> str:
+    """Identify a token without keeping it: its SHA-256 hex digest."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def bounded_put(
+    cache: dict[Any, Any], key: Any, value: Any, limit: int | None = None
+) -> None:
+    """Store ``key`` as the newest entry, dropping the oldest past ``limit``.
+
+    ``limit`` defaults to ``CALLER_CACHE_LIMIT``.
+    """
+    cache.pop(key, None)
+    cache[key] = value
+    while len(cache) > (CALLER_CACHE_LIMIT if limit is None else limit):
+        del cache[next(iter(cache))]
+
+
+def auth_header(token: str | None) -> dict[str, str]:
+    """Build the Authorization header for a NetBox token.
+
+    v2 tokens (NetBox 4.5+) look like ``nbt_<key>.<secret>`` and use the
+    ``Bearer`` scheme; legacy v1 tokens use ``Token``.
+    """
+    if not token:
+        return {}
+    scheme = "Bearer" if token.startswith("nbt_") else "Token"
+    return {"Authorization": f"{scheme} {token}"}
+
+
+class MissingTokenError(Exception):
+    """Token passthrough is on but the current request carries no NetBox token."""
+
+
 class NetBoxAPIError(Exception):
     """An HTTP error response from NetBox, keeping its body.
 
     NetBox explains a rejected write field by field in the response body
     (``{"name": ["This field is required."]}``). A bare status code tells the
     caller nothing it can act on, so the body is carried through to the tool.
+    ``retry_after`` keeps NetBox's Retry-After (seconds), e.g. on a 429.
     """
 
-    def __init__(self, status: int, method: str, path: str, body: Any):
+    def __init__(
+        self,
+        status: int,
+        method: str,
+        path: str,
+        body: Any,
+        retry_after: float | None = None,
+    ):
         self.status = status
         self.method = method
         self.path = path
         self.body = body
+        self.retry_after = retry_after
         super().__init__(f"{method} {path} returned HTTP {status}: {body}")
 
 
@@ -90,9 +140,14 @@ class NetBoxClient:
     """
 
     _status_cache: ClassVar[dict[str, dict[str, Any]]] = {}
-    _branch_cache: ClassVar[dict[tuple[str, str], str]] = {}
-    _plugins_discovered: ClassVar[set[str]] = set()
-    _discovery_lock: ClassVar[asyncio.Lock | None] = None
+    # Keyed by caller too: with token passthrough, one user's lookup must not
+    # answer for another user who may not see the same branches or types.
+    # Bounded by CALLER_CACHE_LIMIT, since every new token adds entries.
+    _branch_cache: ClassVar[dict[tuple[str, str, str], str]] = {}
+    _plugins_discovered: ClassVar[dict[tuple[str, str], None]] = {}
+    # One lock per caller: a caller's concurrent first calls share one scan,
+    # while different callers' scans run side by side.
+    _discovery_locks: ClassVar[dict[tuple[str, str], asyncio.Lock]] = {}
     _redirect_warned: ClassVar[set[str]] = set()
 
     def __init__(
@@ -101,6 +156,8 @@ class NetBoxClient:
         branch: str | None = None,
         *,
         transport: httpx2.AsyncBaseTransport | None = None,
+        token: str | None = None,
+        retry: bool = True,
     ):
         """Initialize the client.
 
@@ -112,14 +169,21 @@ class NetBoxClient:
             transport: Transport to send requests through. Defaults to the
                 process-wide network transport for ``config.verify_ssl``. It
                 is never closed by this client.
+            token: NetBox token to use instead of the one ``config`` selects.
+            retry: Retry 429 and 5xx answers. Off for the token check, which
+                must fail fast and pass NetBox's Retry-After on to the client.
         """
         self.config = config
+        self._token = token
+        self._retry = retry
         self.branch = (
             (branch or config.default_branch) if config.branching_enabled else None
         )
         self.base_url = config.netbox_url.rstrip("/")
         self._transport = transport
         self._http: httpx2.AsyncClient | None = None
+        # Hash of the token in use, set on entry; keys the per-caller caches.
+        self._identity = ""
 
     @classmethod
     def reset_cache(cls) -> None:
@@ -127,27 +191,44 @@ class NetBoxClient:
         cls._status_cache.clear()
         cls._branch_cache.clear()
         cls._plugins_discovered.clear()
+        cls._discovery_locks.clear()
         cls._redirect_warned.clear()
         set_plugin_object_types({})
 
-    def _auth_header(self) -> dict[str, str]:
-        """Build the Authorization header for the configured token.
+    def _resolve_token(self) -> str | None:
+        """Return the NetBox token for this context.
 
-        v2 tokens (NetBox 4.5+) look like ``nbt_<key>.<secret>`` and use the
-        ``Bearer`` scheme; legacy v1 tokens use ``Token``.
+        With token passthrough the token comes from the MCP request being
+        served, never from ``config.token``: a request without one must not
+        borrow the server's identity.
+
+        Raises:
+            MissingTokenError: If an explicit token is empty, or passthrough is
+                on and the request has no token.
         """
-        token = self.config.token
-        if not token:
-            return {}
-        scheme = "Bearer" if token.startswith("nbt_") else "Token"
-        return {"Authorization": f"{scheme} {token}"}
+        if self._token is not None:
+            if not self._token:
+                raise MissingTokenError("An empty NetBox token was given.")
+            return self._token
+        if self.config.token_passthrough:
+            access_token = get_access_token()
+            if access_token is None or not access_token.token:
+                raise MissingTokenError(
+                    "No NetBox token on this request. Send your NetBox API token "
+                    "as 'Authorization: Bearer <token>'."
+                )
+            return access_token.token
+        return self.config.token
 
     async def __aenter__(self) -> "NetBoxClient":
+        token = self._resolve_token()
+        self._identity = token_fingerprint(token) if token else ""
         self._http = build_client(
             self.base_url,
             self.config.timeout,
-            {"Accept": "application/json", **self._auth_header()},
+            {"Accept": "application/json", **auth_header(token)},
             self._transport or shared_transport(self.config.verify_ssl),
+            retry=self._retry,
         )
         return self
 
@@ -253,7 +334,11 @@ class NetBoxClient:
         # Checked before the empty-body case: a proxy's bare 502 is still an error.
         if response.status_code >= 400:
             raise NetBoxAPIError(
-                response.status_code, method, path, body or response.reason_phrase
+                response.status_code,
+                method,
+                path,
+                body or response.reason_phrase,
+                retry_after=parse_retry_after(response.headers.get("Retry-After")),
             )
         return body
 
@@ -325,7 +410,11 @@ class NetBoxClient:
         return tuple(int(part) for part in match.group(1).split(".")) if match else None
 
     async def resolve(self, object_type: str) -> tuple[str, str, str | None]:
-        """Resolve an object type, discovering plugin types first if enabled.
+        """Resolve an object type, discovering plugin types if it is unknown.
+
+        A type already in the registry (every core type) resolves without a
+        discovery scan, so a caller's first call pays for one only when it
+        names a plugin type nobody has discovered yet.
 
         Args:
             object_type: ``app.model`` or an endpoint path.
@@ -335,14 +424,26 @@ class NetBoxClient:
                 fallback endpoint.
         """
         if self.config.plugin_discovery:
-            await self.discover_plugin_types()
+            try:
+                return resolve_object_type(object_type)
+            except ValueError:
+                await self.discover_plugin_types()
         return resolve_object_type(object_type)
 
     async def discover_plugin_types(self, *, force: bool = False) -> int:
         """Load plugin object types from NetBox into the type registry.
 
-        Runs once per NetBox URL unless ``force`` is set. Failure is logged and
-        leaves only the core types available - it never fails the tool call.
+        Runs once per NetBox URL and token unless ``force`` is set. Failure is
+        logged and keeps the types already known (at least the core types) -
+        it never fails the tool call. With token passthrough each user sees
+        only the types their token may view, so results are merged into the
+        registry rather than replacing it: one user's narrower view cannot
+        hide types from another.
+        A user's token NetBox refuses (401/403) is then not asked again.
+
+        A forced rediscovery replaces the registry, so uninstalled plugin types
+        disappear. Other users' views are forgotten with it; ``resolve`` brings
+        back a type only they may see by rediscovering when it is not found.
 
         Args:
             force: Rediscover even if discovery already ran.
@@ -350,39 +451,72 @@ class NetBoxClient:
         Returns:
             int: Number of plugin types known after discovery.
         """
-        if NetBoxClient._discovery_lock is None:
-            NetBoxClient._discovery_lock = asyncio.Lock()
-        async with NetBoxClient._discovery_lock:
-            if self.base_url in self._plugins_discovered and not force:
-                return len(plugin_object_types())
-            discovered: dict[str, str] = {}
-            try:
-                offset = 0
-                while True:
-                    page = await self.get(
-                        "core/object-types",
-                        params={"limit": 1000, "offset": offset},
-                        fallback_path="extras/object-types",
-                        use_branch=False,
-                    )
-                    rows = page.get("results", [])
-                    for row in rows:
-                        entry = _plugin_type_entry(row)
-                        if entry:
-                            discovered[entry[0]] = entry[1]
-                    # Advance by rows received: NetBox clamps the page size to
-                    # MAX_PAGE_SIZE, so a fixed step would skip rows.
-                    if not page.get("next") or not rows:
-                        break
-                    offset += len(rows)
-            except LOOKUP_ERRORS as exc:
-                logger.warning("Plugin discovery failed, using core types: %s", exc)
-                return 0
-            set_plugin_object_types(discovered)
-            self._plugins_discovered.add(self.base_url)
-            count = len(plugin_object_types())
-            logger.info("Discovered %d plugin object types", count)
-            return count
+        discovery_key = (self.base_url, self._identity)
+        # Checked before the lock too, so callers that already ran discovery
+        # never wait behind another caller's first discovery.
+        if discovery_key in self._plugins_discovered and not force:
+            return len(plugin_object_types())
+        lock = self._discovery_locks.get(discovery_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            bounded_put(self._discovery_locks, discovery_key, lock)
+        try:
+            async with lock:
+                if discovery_key in self._plugins_discovered and not force:
+                    return len(plugin_object_types())
+                discovered: dict[str, str] = {}
+                try:
+                    offset = 0
+                    while True:
+                        page = await self.get(
+                            "core/object-types",
+                            params={"limit": 1000, "offset": offset},
+                            fallback_path="extras/object-types",
+                            use_branch=False,
+                        )
+                        rows = page.get("results", [])
+                        for row in rows:
+                            entry = _plugin_type_entry(row)
+                            if entry:
+                                discovered[entry[0]] = entry[1]
+                        # Advance by rows received: NetBox clamps the page size to
+                        # MAX_PAGE_SIZE, so a fixed step would skip rows.
+                        if not page.get("next") or not rows:
+                            break
+                        offset += len(rows)
+                except LOOKUP_ERRORS as exc:
+                    logger.warning("Plugin discovery failed, using core types: %s", exc)
+                    if (
+                        self.config.token_passthrough
+                        and isinstance(exc, NetBoxAPIError)
+                        and exc.status in (401, 403)
+                    ):
+                        # This user's token may not read object types; asking again
+                        # on every call would only repeat the failure. The server's
+                        # own token keeps retrying, as its permissions may be fixed.
+                        bounded_put(self._plugins_discovered, discovery_key, None)
+                    return len(plugin_object_types())
+                if force:
+                    # Other callers rediscover lazily, through resolve or a listing.
+                    for key in [
+                        k for k in self._plugins_discovered if k[0] == self.base_url
+                    ]:
+                        del self._plugins_discovered[key]
+                elif self.config.token_passthrough:
+                    discovered = {**plugin_object_types(), **discovered}
+                set_plugin_object_types(discovered)
+                bounded_put(self._plugins_discovered, discovery_key, None)
+                count = len(plugin_object_types())
+                logger.info("Discovered %d plugin object types", count)
+                return count
+        finally:
+            # Once discovered, callers take the fast path above, so the lock is
+            # dropped: the dict then holds only scans still running or failed.
+            if (
+                discovery_key in self._plugins_discovered
+                and self._discovery_locks.get(discovery_key) is lock
+            ):
+                del self._discovery_locks[discovery_key]
 
     async def resolve_branch(self, branch: str) -> str:
         """Translate a branch name into the schema ID ``X-NetBox-Branch`` needs.
@@ -396,7 +530,7 @@ class NetBoxClient:
         Raises:
             ValueError: If no branch matches.
         """
-        cache_key = (self.base_url, branch)
+        cache_key = (self.base_url, self._identity, branch)
         if cache_key in self._branch_cache:
             return self._branch_cache[cache_key]
 
@@ -423,7 +557,7 @@ class NetBoxClient:
                 f"Branch {branch!r} not found. Use netbox_list_branches to see "
                 "available branches."
             )
-        self._branch_cache[cache_key] = schema_id
+        bounded_put(self._branch_cache, cache_key, schema_id)
         return schema_id
 
 
@@ -458,6 +592,9 @@ def get_netbox_config_from_env() -> NetBoxConfig:
     return NetBoxConfig(
         netbox_url=os.getenv("NETBOX_URL", ""),
         token=(os.getenv("NETBOX_TOKEN") or "").strip() or None,
+        token_passthrough=parse_bool(
+            os.getenv("NETBOX_TOKEN_PASSTHROUGH"), default=False
+        ),
         verify_ssl=parse_bool(os.getenv("NETBOX_VERIFY_SSL"), default=True),
         timeout=float(os.getenv("NETBOX_TIMEOUT", "30")),
         branching_enabled=parse_bool(

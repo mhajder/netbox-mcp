@@ -17,6 +17,11 @@ class NetBoxConfig(BaseModel):
         description="NetBox API token. v2 tokens (nbt_<key>.<token>) are sent as "
         "'Bearer', legacy v1 tokens as 'Token'",
     )
+    token_passthrough: bool = Field(
+        False,
+        description="Call NetBox with each MCP client's own token from its "
+        "'Authorization: Bearer' header instead of 'token' (HTTP transports only)",
+    )
     # Connection settings
     verify_ssl: bool = Field(True, description="Verify SSL certificates (true/false)")
     timeout: float = Field(

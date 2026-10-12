@@ -226,6 +226,10 @@ TOOL_SEARCH_MAX_RESULTS=5
 # MCP_HTTP_PORT=8000
 # Optional bearer token for authentication (leave empty for no auth)
 # MCP_HTTP_BEARER_TOKEN=
+# Set NETBOX_TOKEN_PASSTHROUGH true to make every client authenticate with its own
+# NetBox API token (Authorization: Bearer <token>); NetBox then applies that user's
+# permissions. NETBOX_TOKEN is ignored. Cannot be combined with MCP_HTTP_BEARER_TOKEN
+# NETBOX_TOKEN_PASSTHROUGH=false
 ```
 
 ## Available Tools
@@ -315,7 +319,7 @@ Branch names are resolved to the schema ID that the `X-NetBox-Branch` header nee
 NETBOX_PLUGIN_DISCOVERY=true
 ```
 
-On first use the server reads `/api/core/object-types/` and adds every plugin model with a REST endpoint (for example `netbox_dns.zone`). Plugin types never shadow core types. If discovery fails, the core types keep working.
+The first time a call names an unknown type (or `netbox_list_object_types` runs), the server reads `/api/core/object-types/` and adds every plugin model with a REST endpoint (for example `netbox_dns.zone`). Plugin types never shadow core types. If discovery fails, the core types keep working.
 
 ### Tag-Based Tool Filtering
 
@@ -494,6 +498,28 @@ curl -H "Authorization: Bearer your-secret-token" \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
      http://localhost:8000/mcp
 ```
+
+#### Per-user NetBox tokens
+
+By default every client shares the server's `NETBOX_TOKEN`, so NetBox sees one user. With `NETBOX_TOKEN_PASSTHROUGH=true`, each client sends its own NetBox API token instead. NetBox applies that user's permissions and the changelog records the real user:
+
+```env
+MCP_TRANSPORT=http
+MCP_HTTP_HOST=0.0.0.0
+NETBOX_TOKEN_PASSTHROUGH=true
+```
+
+```sh
+claude mcp add --transport http netbox https://netbox-mcp.example.com/mcp \
+  --header "Authorization: Bearer nbt_your-key.your-token"
+```
+
+- Requests without a token, or with a token NetBox rejects, get HTTP 401. If NetBox cannot be reached to check a token within 10 seconds (or `NETBOX_TIMEOUT`, if lower), the request gets HTTP 503 with `Retry-After`, so clients retry instead of logging in again. The 503 passes on NetBox's own `Retry-After` when NetBox sends one. Accepted tokens are cached for 60 seconds. After that, the token is still accepted right away for up to 10 minutes while the server re-checks it with NetBox in the background, so a known user never waits on a check, even during a NetBox outage. A revoked token is dropped once its re-check comes back; until then it only reaches tools that don't call NetBox (such as the tool list), because NetBox refuses the token on every call that does. Rejected tokens are cached for 30 seconds, so a token just created in NetBox may be refused for up to 30 seconds if it was tried before it existed. At most 8 token checks reach NetBox at once; requests with a token the server hasn't seen yet wait for a free slot, and get HTTP 503 if the wait exceeds the check timeout.
+- v2 (`nbt_...`) and legacy v1 tokens both work; the server sends each to NetBox with the right scheme.
+- `NETBOX_TOKEN` is ignored. Only the `http` and `sse` transports are supported, and the server refuses to start if `MCP_HTTP_BEARER_TOKEN` is set too, since both use the `Authorization` header.
+- With `RATE_LIMIT_ENABLED=true`, each NetBox user gets their own rate-limit window (each token on NetBox before 4.5), so the limit no longer caps the server's total load on NetBox.
+- With `NETBOX_PLUGIN_DISCOVERY=true`, plugin types found with any user's token are added to one shared list. `rediscover` replaces that list with what the calling user can see, which drops uninstalled plugins; another user's call that names a type only they can see rediscovers it with their token.
+- Clients send their NetBox tokens to this server, so put it behind HTTPS.
 
 **Note**: The HTTP transport requires proper JSON-RPC formatting with `jsonrpc` and `id` fields. The server may also require session initialization for some operations.
 

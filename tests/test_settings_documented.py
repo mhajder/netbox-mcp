@@ -35,7 +35,11 @@ def test_env_var_in_readme(name):
 
 # The registry manifest configures a local install; binding and HTTP auth are
 # left to the operator, as in the MCP registry examples.
-REGISTRY_EXCLUDED = {"MCP_HTTP_HOST", "MCP_HTTP_BEARER_TOKEN"}
+REGISTRY_EXCLUDED = {
+    "MCP_HTTP_HOST",
+    "MCP_HTTP_BEARER_TOKEN",
+    "NETBOX_TOKEN_PASSTHROUGH",
+}
 
 
 @pytest.mark.parametrize("name", sorted(set(ENV_VARS) - REGISTRY_EXCLUDED))

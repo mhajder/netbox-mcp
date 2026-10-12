@@ -8,6 +8,7 @@ from netbox_mcp.models import NetBoxConfig
 from netbox_mcp.netbox_client import AmbiguousWriteError
 from netbox_mcp.netbox_client import NetBoxAPIError
 from netbox_mcp.netbox_client import NetBoxClient
+from netbox_mcp.netbox_client import auth_header
 
 
 @pytest.mark.parametrize(
@@ -17,9 +18,8 @@ from netbox_mcp.netbox_client import NetBoxClient
         ("0123456789abcdef", "Token 0123456789abcdef"),
     ],
 )
-def test_auth_scheme_follows_token_version(config, token, expected):
-    config.token = token
-    assert NetBoxClient(config)._auth_header() == {"Authorization": expected}
+def test_auth_scheme_follows_token_version(token, expected):
+    assert auth_header(token) == {"Authorization": expected}
 
 
 async def test_fallback_endpoint_used_on_404(config, netbox):

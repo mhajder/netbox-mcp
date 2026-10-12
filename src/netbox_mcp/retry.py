@@ -14,6 +14,7 @@ before it reached a view.
 
 import asyncio
 import logging
+import math
 
 import httpx2
 
@@ -28,6 +29,27 @@ BASE_BACKOFF = 0.5
 MAX_DELAY = 10.0
 
 
+def parse_retry_after(raw: str | None) -> float | None:
+    """Parse a Retry-After header value into seconds.
+
+    Args:
+        raw: The header value, if any.
+
+    Returns:
+        float | None: Delay in seconds, or None if absent or unparsable.
+    """
+    if not raw:
+        return None
+    try:
+        # Only the delta-seconds form is handled; the HTTP-date form is rare
+        # here and not worth the parsing risk.
+        delay = float(raw.strip())
+    except ValueError:
+        return None
+    # float() also accepts "inf" and "nan", which no delay can use.
+    return delay if math.isfinite(delay) and delay >= 0 else None
+
+
 def _retry_after_seconds(response: httpx2.Response) -> float | None:
     """Read a Retry-After header, in seconds, if the server sent a usable one.
 
@@ -38,16 +60,8 @@ def _retry_after_seconds(response: httpx2.Response) -> float | None:
         float | None: Delay in seconds, or None if absent, unparsable, or longer
             than a tool call should reasonably block for.
     """
-    raw = response.headers.get("Retry-After")
-    if not raw:
-        return None
-    try:
-        # Only the delta-seconds form is handled; the HTTP-date form is rare
-        # here and not worth the parsing risk.
-        delay = float(raw.strip())
-    except ValueError:
-        return None
-    if delay < 0 or delay > MAX_DELAY:
+    delay = parse_retry_after(response.headers.get("Retry-After"))
+    if delay is None or delay > MAX_DELAY:
         return None
     return delay
 
@@ -138,6 +152,8 @@ def build_client(
     timeout: float,
     headers: dict[str, str],
     transport: httpx2.AsyncBaseTransport,
+    *,
+    retry: bool = True,
 ) -> httpx2.AsyncClient:
     """Create the HTTP client used for one NetBox API connection.
 
@@ -151,14 +167,18 @@ def build_client(
         headers: Default headers (authorization, accept) for every request.
         transport: Transport that sends requests. It is not closed with the
             client, so it can be shared.
+        retry: Retry transient failures. Off for callers that must answer fast
+            and pass NetBox's Retry-After on instead of waiting it out.
 
     Returns:
-        httpx2.AsyncClient: Client with retries installed.
+        httpx2.AsyncClient: Client with retries installed unless ``retry`` is off.
     """
+    if retry:
+        transport = RetryTransport(transport, owns_wrapped=False)
     return httpx2.AsyncClient(
         base_url=base_url,
         headers=headers,
         timeout=timeout,
         follow_redirects=True,
-        transport=RetryTransport(transport, owns_wrapped=False),
+        transport=transport,
     )

@@ -14,7 +14,6 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp import settings
-from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from fastmcp.server.middleware.rate_limiting import SlidingWindowRateLimitingMiddleware
 from fastmcp.server.middleware.response_limiting import ResponseLimitingMiddleware
 from fastmcp.server.transforms.search import BM25SearchTransform
@@ -22,6 +21,8 @@ from fastmcp.server.transforms.search import RegexSearchTransform
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
+from netbox_mcp.auth import build_auth_provider
+from netbox_mcp.auth import rate_limit_client_id
 from netbox_mcp.netbox_client import get_netbox_config_from_env
 from netbox_mcp.netbox_client import get_transport_config_from_env
 from netbox_mcp.sentry_init import init_sentry
@@ -65,23 +66,10 @@ except PackageNotFoundError:
 try:
     NETBOX_CONFIG = get_netbox_config_from_env()
     TRANSPORT_CONFIG = get_transport_config_from_env()
+    auth_provider = build_auth_provider(NETBOX_CONFIG, TRANSPORT_CONFIG)
 except Exception as e:
     logger.error(f"Invalid configuration: {e}")
     raise
-
-# Create auth provider if bearer token is configured
-auth_provider = None
-if getattr(TRANSPORT_CONFIG, "http_bearer_token", None):
-    bearer_token = TRANSPORT_CONFIG.http_bearer_token
-    if bearer_token:  # Type narrowing: ensures bearer_token is str, not None
-        auth_provider = StaticTokenVerifier(
-            tokens={
-                bearer_token: {
-                    "client_id": "authenticated-client",
-                    "scopes": ["read", "write"],
-                }
-            }
-        )
 
 
 def build_instructions() -> str:
@@ -194,6 +182,7 @@ if getattr(NETBOX_CONFIG, "rate_limit_enabled", False):
         SlidingWindowRateLimitingMiddleware(
             max_requests=NETBOX_CONFIG.rate_limit_max_requests,
             window_minutes=NETBOX_CONFIG.rate_limit_window_minutes,
+            get_client_id=rate_limit_client_id,
         )
     )
 
@@ -218,10 +207,17 @@ def main():
             "Authorization header on every request - use https:// outside a trusted network."
         )
 
-    if not NETBOX_CONFIG.token:
+    if NETBOX_CONFIG.token_passthrough:
+        # Each client authenticates with its own NetBox token instead.
+        if NETBOX_CONFIG.token:
+            logger.warning(
+                "NETBOX_TOKEN is ignored: NETBOX_TOKEN_PASSTHROUGH calls NetBox "
+                "with each client's own token."
+            )
+    elif not NETBOX_CONFIG.token:
         logger.error("Missing NetBox API token (NETBOX_TOKEN). Check your .env file.")
         raise SystemExit(1)
-    if not NETBOX_CONFIG.token.startswith("nbt_"):
+    elif not NETBOX_CONFIG.token.startswith("nbt_"):
         logger.info(
             "NETBOX_TOKEN is a legacy v1 token. v1 tokens are deprecated since "
             "NetBox 4.6 - consider a v2 token (nbt_...)."
@@ -230,6 +226,7 @@ def main():
     if (
         TRANSPORT_CONFIG.transport_type in HTTP_TRANSPORTS
         and not TRANSPORT_CONFIG.http_bearer_token
+        and not NETBOX_CONFIG.token_passthrough
     ):
         logger.warning(
             "WARNING: MCP_HTTP_BEARER_TOKEN is not set. The MCP server will run WITHOUT authentication. "
@@ -251,29 +248,22 @@ def main():
     )
 
     # Choose transport based on configuration
-    if TRANSPORT_CONFIG.transport_type == "sse":
+    if TRANSPORT_CONFIG.transport_type in HTTP_TRANSPORTS:
+        # Spelled out as literals: mcp.run() takes a Literal transport name.
+        transport = "sse" if TRANSPORT_CONFIG.transport_type == "sse" else "http"
+        label = "SSE" if transport == "sse" else "Streamable"
         logger.info(
-            f"Using HTTP SSE transport on {TRANSPORT_CONFIG.http_host}:{TRANSPORT_CONFIG.http_port}"
+            f"Using HTTP {label} transport on {TRANSPORT_CONFIG.http_host}:{TRANSPORT_CONFIG.http_port}"
         )
-        if TRANSPORT_CONFIG.http_bearer_token:
-            logger.info("Bearer token authentication enabled for SSE transport")
+        if NETBOX_CONFIG.token_passthrough:
+            logger.info(
+                f"Per-user NetBox token authentication enabled for {label} transport"
+            )
+        elif TRANSPORT_CONFIG.http_bearer_token:
+            logger.info(f"Bearer token authentication enabled for {label} transport")
 
-        # Run with HTTP SSE transport
         mcp.run(
-            transport="sse",
-            host=TRANSPORT_CONFIG.http_host,
-            port=TRANSPORT_CONFIG.http_port,
-        )
-    elif TRANSPORT_CONFIG.transport_type == "http":
-        logger.info(
-            f"Using HTTP Streamable transport on {TRANSPORT_CONFIG.http_host}:{TRANSPORT_CONFIG.http_port}"
-        )
-        if TRANSPORT_CONFIG.http_bearer_token:
-            logger.info("Bearer token authentication enabled for Streamable transport")
-
-        # Run with HTTP Streamable transport
-        mcp.run(
-            transport="http",
+            transport=transport,
             host=TRANSPORT_CONFIG.http_host,
             port=TRANSPORT_CONFIG.http_port,
         )
