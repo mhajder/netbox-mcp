@@ -1,5 +1,6 @@
 """The container healthcheck must ask the server itself, not just the port."""
 
+import contextlib
 import http.client
 import os
 import socket
@@ -172,46 +173,73 @@ def _status(port: int, method: str, path: str) -> int:
         conn.close()
 
 
-@pytest.mark.parametrize(
-    ("transport", "bearer_token", "mcp_path", "method"),
-    [
-        ("http", "secret", "/mcp", "POST"),
-        ("sse", "secret", "/sse", "GET"),
-        ("http", "", "/mcp", "POST"),
-    ],
-)
-def test_real_server_health_endpoint_needs_no_token(
-    monkeypatch, closed_port, tmp_path, transport, bearer_token, mcp_path, method
-):
-    """End to end: the server's /health answers the probe, bearer auth or not."""
-    port = closed_port
-    env = {
-        **os.environ,
-        "NETBOX_URL": "https://netbox.invalid",
-        "NETBOX_TOKEN": "t",
-        "MCP_TRANSPORT": transport,
-        "MCP_HTTP_HOST": "127.0.0.1",
-        "MCP_HTTP_PORT": str(port),
-        "MCP_HTTP_BEARER_TOKEN": bearer_token,
-        "SENTRY_DSN": "",
-    }
-    server = subprocess.Popen(
-        [sys.executable, "-c", "import netbox_mcp.server as s; s.main()"],
-        env=env,
-        cwd=tmp_path,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+# (transport, bearer token, MCP endpoint, method that reaches it)
+REAL_SERVER_CASES = {
+    "http-secret-/mcp-POST": ("http", "secret", "/mcp", "POST"),
+    "sse-secret-/sse-GET": ("sse", "secret", "/sse", "GET"),
+    "http--/mcp-POST": ("http", "", "/mcp", "POST"),
+}
+
+
+def _free_ports(count: int) -> list[int]:
+    """Distinct free ports; every socket stays bound until all are picked."""
+    with contextlib.ExitStack() as stack:
+        socks = [stack.enter_context(socket.socket()) for _ in range(count)]
+        for sock in socks:
+            sock.bind(("127.0.0.1", 0))
+        return [sock.getsockname()[1] for sock in socks]
+
+
+@pytest.fixture(scope="module")
+def real_servers(tmp_path_factory) -> Iterator[dict[str, tuple[subprocess.Popen, int]]]:
+    """Start every REAL_SERVER_CASES server at once.
+
+    Each one spends about 1.5 s importing before it listens; started one test
+    at a time, that wait was paid once per case.
+    """
+    ports = _free_ports(len(REAL_SERVER_CASES))
+    servers: dict[str, tuple[subprocess.Popen, int]] = {}
     try:
-        _configure(monkeypatch, port, transport)
-        deadline = time.monotonic() + 30
-        while healthcheck.main() != 0:
-            assert server.poll() is None, "server exited"
-            assert time.monotonic() < deadline, "server never became healthy"
-            time.sleep(0.05)
-        if bearer_token:
-            # Auth is really on: the MCP endpoint itself rejects the request.
-            assert _status(port, method, mcp_path) == 401
+        for (case, (transport, bearer_token, _, _)), port in zip(
+            REAL_SERVER_CASES.items(), ports, strict=True
+        ):
+            env = {
+                **os.environ,
+                "NETBOX_URL": "https://netbox.invalid",
+                "NETBOX_TOKEN": "t",
+                "MCP_TRANSPORT": transport,
+                "MCP_HTTP_HOST": "127.0.0.1",
+                "MCP_HTTP_PORT": str(port),
+                "MCP_HTTP_BEARER_TOKEN": bearer_token,
+                "SENTRY_DSN": "",
+            }
+            server = subprocess.Popen(
+                [sys.executable, "-c", "import netbox_mcp.server as s; s.main()"],
+                env=env,
+                cwd=tmp_path_factory.mktemp("server"),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            servers[case] = (server, port)
+        yield servers
     finally:
-        server.terminate()
-        server.wait(timeout=10)
+        for server, _ in servers.values():
+            server.terminate()
+        for server, _ in servers.values():
+            server.wait(timeout=10)
+
+
+@pytest.mark.parametrize("case", REAL_SERVER_CASES)
+def test_real_server_health_endpoint_needs_no_token(monkeypatch, real_servers, case):
+    """End to end: the server's /health answers the probe, bearer auth or not."""
+    transport, bearer_token, mcp_path, method = REAL_SERVER_CASES[case]
+    server, port = real_servers[case]
+    _configure(monkeypatch, port, transport)
+    deadline = time.monotonic() + 30
+    while healthcheck.main() != 0:
+        assert server.poll() is None, "server exited"
+        assert time.monotonic() < deadline, "server never became healthy"
+        time.sleep(0.05)
+    if bearer_token:
+        # Auth is really on: the MCP endpoint itself rejects the request.
+        assert _status(port, method, mcp_path) == 401
