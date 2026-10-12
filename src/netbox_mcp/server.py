@@ -19,11 +19,15 @@ from fastmcp.server.middleware.rate_limiting import SlidingWindowRateLimitingMid
 from fastmcp.server.middleware.response_limiting import ResponseLimitingMiddleware
 from fastmcp.server.transforms.search import BM25SearchTransform
 from fastmcp.server.transforms.search import RegexSearchTransform
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
 
 from netbox_mcp.netbox_client import get_netbox_config_from_env
 from netbox_mcp.netbox_client import get_transport_config_from_env
 from netbox_mcp.sentry_init import init_sentry
 from netbox_mcp.tools import register_tools
+from netbox_mcp.utils import HEALTH_PATH
+from netbox_mcp.utils import HTTP_TRANSPORTS
 
 # Load environment variables
 load_dotenv()
@@ -113,6 +117,20 @@ mcp = FastMCP(
     instructions=build_instructions(),
     auth=auth_provider,
 )
+
+
+@mcp.custom_route(HEALTH_PATH, methods=["GET"], include_in_schema=False)
+async def health(_request: Request) -> PlainTextResponse:
+    """Liveness probe for the HTTP transports.
+
+    Answering proves the server handles requests, which a TCP connect does not:
+    the kernel completes the handshake even while the event loop is stuck. It
+    deliberately does not call NetBox, so an outage there does not get a
+    healthy MCP server restarted. FastMCP serves custom routes outside the
+    bearer-token auth, so the container healthcheck needs no token.
+    """
+    return PlainTextResponse("ok")
+
 
 # Register all tools
 register_tools(mcp, NETBOX_CONFIG)
@@ -210,7 +228,7 @@ def main():
         )
 
     if (
-        TRANSPORT_CONFIG.transport_type in {"sse", "http"}
+        TRANSPORT_CONFIG.transport_type in HTTP_TRANSPORTS
         and not TRANSPORT_CONFIG.http_bearer_token
     ):
         logger.warning(
