@@ -20,6 +20,9 @@ from netbox_mcp.retry import build_client
 from netbox_mcp.retry import parse_retry_after
 from netbox_mcp.retry import shared_transport
 from netbox_mcp.utils import env_bool
+from netbox_mcp.utils import env_float
+from netbox_mcp.utils import env_int
+from netbox_mcp.utils import env_str
 from netbox_mcp.utils import http_host_from_env
 from netbox_mcp.utils import http_port_from_env
 from netbox_mcp.utils import transport_from_env
@@ -587,43 +590,42 @@ def get_netbox_config_from_env() -> NetBoxConfig:
             tag.strip() for tag in disabled_tags_str.split(",") if tag.strip()
         }
 
-    response_max_size = os.getenv("RESPONSE_MAX_SIZE", "").strip()
+    # Blank means unlimited; zero or less is rejected by NetBoxConfig.
+    response_max_size = (
+        env_int("RESPONSE_MAX_SIZE", 0) if env_str("RESPONSE_MAX_SIZE") else None
+    )
 
     return NetBoxConfig(
-        netbox_url=os.getenv("NETBOX_URL", ""),
-        token=(os.getenv("NETBOX_TOKEN") or "").strip() or None,
+        netbox_url=env_str("NETBOX_URL") or "",
+        token=env_str("NETBOX_TOKEN"),
         token_passthrough=env_bool("NETBOX_TOKEN_PASSTHROUGH", default=False),
         verify_ssl=env_bool("NETBOX_VERIFY_SSL", default=True),
-        timeout=float(os.getenv("NETBOX_TIMEOUT", "30")),
+        timeout=env_float("NETBOX_TIMEOUT", 30),
         branching_enabled=env_bool("NETBOX_BRANCHING_ENABLED", default=False),
-        default_branch=(os.getenv("NETBOX_BRANCH") or "").strip() or None,
+        default_branch=env_str("NETBOX_BRANCH"),
         plugin_discovery=env_bool("NETBOX_PLUGIN_DISCOVERY", default=False),
         read_only_mode=env_bool("READ_ONLY_MODE", default=False),
         dry_run_mode=env_bool("DRY_RUN_MODE", default=False),
         disabled_tags=disabled_tags,
-        response_max_size=int(response_max_size) if response_max_size else None,
+        response_max_size=response_max_size,
         rate_limit_enabled=env_bool("RATE_LIMIT_ENABLED", default=False),
-        rate_limit_max_requests=int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "60")),
-        rate_limit_window_minutes=int(os.getenv("RATE_LIMIT_WINDOW_MINUTES", "1")),
+        rate_limit_max_requests=env_int("RATE_LIMIT_MAX_REQUESTS", 60),
+        rate_limit_window_minutes=env_int("RATE_LIMIT_WINDOW_MINUTES", 1),
         tool_search_enabled=env_bool("TOOL_SEARCH_ENABLED", default=False),
         tool_search_strategy=(
             "regex"
             if os.getenv("TOOL_SEARCH_STRATEGY", "bm25").lower() == "regex"
             else "bm25"
         ),
-        tool_search_max_results=int(os.getenv("TOOL_SEARCH_MAX_RESULTS", "5")),
+        tool_search_max_results=env_int("TOOL_SEARCH_MAX_RESULTS", 5),
     )
 
 
 def get_transport_config_from_env() -> TransportConfig:
     """Get transport configuration from environment variables."""
-    http_bearer_token = os.getenv("MCP_HTTP_BEARER_TOKEN")
-    if http_bearer_token is not None:
-        http_bearer_token = http_bearer_token.strip() or None
-
     return TransportConfig(
         transport_type=transport_from_env(),
         http_host=http_host_from_env(),
         http_port=http_port_from_env(),
-        http_bearer_token=http_bearer_token,
+        http_bearer_token=env_str("MCP_HTTP_BEARER_TOKEN"),
     )

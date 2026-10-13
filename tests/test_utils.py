@@ -1,6 +1,9 @@
 import pytest
 
 from netbox_mcp.utils import env_bool
+from netbox_mcp.utils import env_float
+from netbox_mcp.utils import env_int
+from netbox_mcp.utils import env_str
 from netbox_mcp.utils import http_host_from_env
 from netbox_mcp.utils import http_port_from_env
 from netbox_mcp.utils import parse_bool
@@ -95,7 +98,9 @@ def test_http_host_from_env(monkeypatch, raw, expected):
     assert http_host_from_env() == expected
 
 
-@pytest.mark.parametrize(("raw", "expected"), [(None, 8000), ("9000", 9000)])
+@pytest.mark.parametrize(
+    ("raw", "expected"), [(None, 8000), ("9000", 9000), (" 9000 ", 9000), ("", 8000)]
+)
 def test_http_port_from_env(monkeypatch, raw, expected):
     if raw is None:
         monkeypatch.delenv("MCP_HTTP_PORT", raising=False)
@@ -104,8 +109,48 @@ def test_http_port_from_env(monkeypatch, raw, expected):
     assert http_port_from_env() == expected
 
 
-@pytest.mark.parametrize("raw", ["", "auto"])
+@pytest.mark.parametrize("raw", ["auto", "80.5"])
 def test_http_port_from_env_rejects_non_integers(monkeypatch, raw):
     monkeypatch.setenv("MCP_HTTP_PORT", raw)
-    with pytest.raises(ValueError, match="invalid literal for int"):
+    with pytest.raises(ValueError, match="MCP_HTTP_PORT must be an integer"):
         http_port_from_env()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [(None, None), ("", None), ("  ", None), (" tok ", "tok")]
+)
+def test_env_str_strips_and_treats_blank_as_unset(monkeypatch, raw, expected):
+    if raw is None:
+        monkeypatch.delenv("NETBOX_TEST_STR", raising=False)
+    else:
+        monkeypatch.setenv("NETBOX_TEST_STR", raw)
+    assert env_str("NETBOX_TEST_STR") == expected
+
+
+@pytest.mark.parametrize(("raw", "expected"), [(None, 30), ("", 30), (" 5 ", 5)])
+def test_env_int_treats_blank_as_unset(monkeypatch, raw, expected):
+    if raw is None:
+        monkeypatch.delenv("NETBOX_TEST_INT", raising=False)
+    else:
+        monkeypatch.setenv("NETBOX_TEST_INT", raw)
+    assert env_int("NETBOX_TEST_INT", 30) == expected
+
+
+def test_env_int_names_the_variable(monkeypatch):
+    monkeypatch.setenv("NETBOX_TEST_INT", "ten")
+    with pytest.raises(
+        ValueError, match="NETBOX_TEST_INT must be an integer, got 'ten'"
+    ):
+        env_int("NETBOX_TEST_INT", 30)
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("", 1.0), ("0.25", 0.25)])
+def test_env_float_treats_blank_as_unset(monkeypatch, raw, expected):
+    monkeypatch.setenv("NETBOX_TEST_FLOAT", raw)
+    assert env_float("NETBOX_TEST_FLOAT", 1.0) == expected
+
+
+def test_env_float_names_the_variable(monkeypatch):
+    monkeypatch.setenv("NETBOX_TEST_FLOAT", "half")
+    with pytest.raises(ValueError, match="NETBOX_TEST_FLOAT must be a number"):
+        env_float("NETBOX_TEST_FLOAT", 1.0)

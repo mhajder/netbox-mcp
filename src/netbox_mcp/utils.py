@@ -1,4 +1,6 @@
 import os
+from collections.abc import Callable
+from typing import TypeVar
 
 TRUTHY_VALUES = ("true", "1", "yes", "on")
 FALSY_VALUES = ("false", "0", "no", "off")
@@ -66,6 +68,55 @@ def env_bool(name: str, default: bool) -> bool:
         ) from None
 
 
+def env_str(name: str, default: str | None = None) -> str | None:
+    """
+    Read a string environment variable, stripped.
+
+    A blank or whitespace-only value counts as unset and yields the default, so
+    a URL, token or DSN declared without a value is not mistaken for a real one.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip()
+
+
+_Number = TypeVar("_Number", int, float)
+
+
+def _env_number(
+    name: str, default: _Number, cast: Callable[[str], _Number], kind: str
+) -> _Number:
+    """Read a numeric environment variable, treating a blank value as unset."""
+    raw = env_str(name)
+    if raw is None:
+        return default
+    try:
+        return cast(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be {kind}, got {os.getenv(name)!r}") from None
+
+
+def env_int(name: str, default: int) -> int:
+    """
+    Read an integer environment variable, treating a blank value as unset.
+
+    Raises:
+        ValueError: If the variable is set to something that is not an integer.
+    """
+    return _env_number(name, default, int, "an integer")
+
+
+def env_float(name: str, default: float) -> float:
+    """
+    Read a float environment variable, treating a blank value as unset.
+
+    Raises:
+        ValueError: If the variable is set to something that is not a number.
+    """
+    return _env_number(name, default, float, "a number")
+
+
 # The server and the container healthcheck both read the transport settings
 # through the helpers below, so they always agree on them.
 
@@ -97,9 +148,9 @@ def http_host_from_env() -> str:
 
 def http_port_from_env() -> int:
     """
-    Return MCP_HTTP_PORT as an integer, defaulting to 8000 when unset.
+    Return MCP_HTTP_PORT as an integer, defaulting to 8000 when unset or blank.
 
     Raises:
         ValueError: If the variable is set to something that is not an integer.
     """
-    return int(os.getenv("MCP_HTTP_PORT", "8000"))
+    return env_int("MCP_HTTP_PORT", 8000)

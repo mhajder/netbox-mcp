@@ -3,6 +3,8 @@
 import pytest
 
 from netbox_mcp.netbox_client import get_netbox_config_from_env
+from netbox_mcp.netbox_client import get_transport_config_from_env
+from netbox_mcp.sentry_init import init_sentry
 
 SETTINGS = (
     "NETBOX_TOKEN_PASSTHROUGH",
@@ -51,3 +53,53 @@ def test_verify_ssl_unknown_value_is_not_read_as_false(monkeypatch):
     monkeypatch.setenv("NETBOX_VERIFY_SSL", "y")
     with pytest.raises(ValueError, match="NETBOX_VERIFY_SSL"):
         get_netbox_config_from_env()
+
+
+@pytest.mark.parametrize(
+    "name", ["NETBOX_TIMEOUT", "RESPONSE_MAX_SIZE", "NETBOX_TOKEN", "NETBOX_BRANCH"]
+)
+def test_blank_setting_means_default(monkeypatch, name):
+    """A setting declared without a value (NETBOX_TIMEOUT=) must not crash."""
+    monkeypatch.setenv(name, "  ")
+    config = get_netbox_config_from_env()
+    assert config.timeout == 30
+    assert config.response_max_size is None
+    assert config.token is None
+    assert config.default_branch is None
+
+
+def test_settings_are_stripped(monkeypatch):
+    monkeypatch.setenv("NETBOX_URL", " https://netbox.invalid ")
+    monkeypatch.setenv("NETBOX_TOKEN", " nbt_abc.def ")
+    monkeypatch.setenv("NETBOX_TIMEOUT", " 12.5 ")
+    config = get_netbox_config_from_env()
+    assert config.netbox_url == "https://netbox.invalid"
+    assert config.token == "nbt_abc.def"
+    assert config.timeout == 12.5
+
+
+@pytest.mark.parametrize(
+    ("name", "kind"),
+    [("NETBOX_TIMEOUT", "a number"), ("RESPONSE_MAX_SIZE", "an integer")],
+)
+def test_bad_number_names_the_variable(monkeypatch, name, kind):
+    monkeypatch.setenv(name, "lots")
+    with pytest.raises(ValueError, match=f"{name} must be {kind}, got 'lots'"):
+        get_netbox_config_from_env()
+
+
+def test_whitespace_bearer_token_is_no_token(monkeypatch):
+    """A bearer token of spaces must not be accepted as a real token."""
+    monkeypatch.setenv("MCP_TRANSPORT", "http")
+    monkeypatch.setenv("MCP_HTTP_BEARER_TOKEN", "   ")
+    assert get_transport_config_from_env().http_bearer_token is None
+
+
+def test_bearer_token_is_stripped(monkeypatch):
+    monkeypatch.setenv("MCP_HTTP_BEARER_TOKEN", " secret ")
+    assert get_transport_config_from_env().http_bearer_token == "secret"
+
+
+def test_whitespace_sentry_dsn_leaves_sentry_off(monkeypatch):
+    monkeypatch.setenv("SENTRY_DSN", "  ")
+    assert init_sentry() is False
