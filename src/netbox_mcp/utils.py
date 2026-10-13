@@ -4,6 +4,9 @@ TRUTHY_VALUES = ("1", "true", "yes", "on")
 
 # MCP_TRANSPORT values that serve HTTP. Any other value runs stdio.
 HTTP_TRANSPORTS = frozenset({"sse", "http"})
+# FastMCP calls the streamable HTTP transport "streamable-http"; accept that
+# spelling for the "http" transport this server documents.
+TRANSPORT_ALIASES = {"streamable-http": "http"}
 
 # Liveness endpoint served on the HTTP transports and probed by the container
 # healthcheck.
@@ -42,8 +45,11 @@ def transport_from_env() -> str:
     Return MCP_TRANSPORT lowercased, defaulting to 'stdio' when unset.
 
     A value outside HTTP_TRANSPORTS runs the stdio transport.
+
+    'streamable-http' is read as 'http', FastMCP's name for that transport.
     """
-    return os.getenv("MCP_TRANSPORT", "stdio").lower()
+    transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+    return TRANSPORT_ALIASES.get(transport, transport)
 
 
 def http_host_from_env() -> str:

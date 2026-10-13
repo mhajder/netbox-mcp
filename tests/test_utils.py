@@ -42,9 +42,10 @@ def test_parse_bool(val, default, expected):
         ("stdio", "stdio"),
         ("SSE", "sse"),
         ("HTTP", "http"),
-        # Not stripped or aliased: main() runs stdio for these, as before.
+        # Not stripped: main() runs stdio for this, as before.
         (" http ", " http "),
-        ("streamable-http", "streamable-http"),
+        # FastMCP's name for the streamable HTTP transport.
+        ("streamable-http", "http"),
     ],
 )
 def test_transport_from_env(monkeypatch, raw, expected):
