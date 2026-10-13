@@ -128,29 +128,26 @@ register_tools(mcp, NETBOX_CONFIG)
 def configure_component_visibility() -> None:
     """Apply server-level visibility transforms for read-only and disabled tags."""
 
-    disabled_tags = getattr(NETBOX_CONFIG, "disabled_tags", set())
-    read_only_mode = getattr(NETBOX_CONFIG, "read_only_mode", False)
-
-    if read_only_mode:
+    if NETBOX_CONFIG.read_only_mode:
         logger.info("Read-only mode is enabled - restricting to read-only components")
         mcp.enable(tags={"read-only"}, only=True)
 
-    if disabled_tags:
+    if NETBOX_CONFIG.disabled_tags:
         logger.info(
             "Disabled tags configured: %s - disabling matching components",
-            disabled_tags,
+            NETBOX_CONFIG.disabled_tags,
         )
-        mcp.disable(tags=disabled_tags)
+        mcp.disable(tags=NETBOX_CONFIG.disabled_tags)
 
 
 def configure_tool_search() -> None:
     """Apply the optional FastMCP tool-search transform."""
 
-    if not getattr(NETBOX_CONFIG, "tool_search_enabled", False):
+    if not NETBOX_CONFIG.tool_search_enabled:
         return
 
-    strategy = getattr(NETBOX_CONFIG, "tool_search_strategy", "bm25")
-    max_results = getattr(NETBOX_CONFIG, "tool_search_max_results", 5)
+    strategy = NETBOX_CONFIG.tool_search_strategy
+    max_results = NETBOX_CONFIG.tool_search_max_results
 
     if strategy == "regex":
         mcp.add_transform(RegexSearchTransform(max_results=max_results))
@@ -177,7 +174,7 @@ if NETBOX_CONFIG.response_max_size:
     )
 
 # Optional rate limiting
-if getattr(NETBOX_CONFIG, "rate_limit_enabled", False):
+if NETBOX_CONFIG.rate_limit_enabled:
     logger.info("Rate limiting is enabled - applying middleware")
     mcp.add_middleware(
         SlidingWindowRateLimitingMiddleware(
