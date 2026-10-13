@@ -38,7 +38,7 @@ NetBox MCP Server is a Python-based Model Context Protocol (MCP) server that giv
 
 ### Prerequisites
 
-- Python 3.11 to 3.14
+- Python 3.11 to 3.15
 - A NetBox instance, version 4.2 or newer. Features added later (`omit`, v2
   tokens, `/api/authentication-check/`) are used when the server detects them
 - A NetBox API token with the permissions you want the assistant to have. The
