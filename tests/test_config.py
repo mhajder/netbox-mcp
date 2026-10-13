@@ -103,3 +103,73 @@ def test_bearer_token_is_stripped(monkeypatch):
 def test_whitespace_sentry_dsn_leaves_sentry_off(monkeypatch):
     monkeypatch.setenv("SENTRY_DSN", "  ")
     assert init_sentry() is False
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("RATE_LIMIT_MAX_REQUESTS", "0"),
+        ("RATE_LIMIT_WINDOW_MINUTES", "soon"),
+        ("TOOL_SEARCH_MAX_RESULTS", "-1"),
+        ("TOOL_SEARCH_STRATEGY", "regx"),
+    ],
+)
+def test_disabled_feature_ignores_its_settings(monkeypatch, name, value):
+    """A leftover value must not stop a server that never uses the feature."""
+    monkeypatch.setenv(name, value)
+    config = get_netbox_config_from_env()
+    assert config.rate_limit_max_requests == 60
+    assert config.rate_limit_window_minutes == 1
+    assert config.tool_search_max_results == 5
+    assert config.tool_search_strategy == "bm25"
+
+
+@pytest.mark.parametrize(
+    ("enable", "name"),
+    [
+        ("RATE_LIMIT_ENABLED", "RATE_LIMIT_MAX_REQUESTS"),
+        ("RATE_LIMIT_ENABLED", "RATE_LIMIT_WINDOW_MINUTES"),
+        ("TOOL_SEARCH_ENABLED", "TOOL_SEARCH_MAX_RESULTS"),
+    ],
+)
+def test_enabled_feature_rejects_zero(monkeypatch, enable, name):
+    monkeypatch.setenv(enable, "true")
+    monkeypatch.setenv(name, "0")
+    with pytest.raises(ValueError, match=f"must be at least 1: {name}=0"):
+        get_netbox_config_from_env()
+
+
+def test_enabled_feature_reads_its_settings(monkeypatch):
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("RATE_LIMIT_MAX_REQUESTS", "10")
+    monkeypatch.setenv("TOOL_SEARCH_ENABLED", "true")
+    monkeypatch.setenv("TOOL_SEARCH_STRATEGY", " Regex ")
+    monkeypatch.setenv("TOOL_SEARCH_MAX_RESULTS", "")
+    config = get_netbox_config_from_env()
+    assert config.rate_limit_max_requests == 10
+    assert config.tool_search_strategy == "regex"
+    assert config.tool_search_max_results == 5
+
+
+def test_strategy_typo_rejected_when_search_enabled(monkeypatch):
+    monkeypatch.setenv("TOOL_SEARCH_ENABLED", "true")
+    monkeypatch.setenv("TOOL_SEARCH_STRATEGY", "regx")
+    with pytest.raises(ValueError, match="TOOL_SEARCH_STRATEGY must be 'bm25' or"):
+        get_netbox_config_from_env()
+
+
+@pytest.mark.parametrize("transport", [None, "stdio"])
+def test_port_ignored_under_stdio(monkeypatch, transport):
+    """A leftover MCP_HTTP_PORT must not stop stdio or `fastmcp run`."""
+    if transport is not None:
+        monkeypatch.setenv("MCP_TRANSPORT", transport)
+    monkeypatch.setenv("MCP_HTTP_PORT", "auto")
+    assert get_transport_config_from_env().http_port == 8000
+
+
+@pytest.mark.parametrize("transport", ["http", "sse"])
+def test_port_parsed_for_http_transports(monkeypatch, transport):
+    monkeypatch.setenv("MCP_TRANSPORT", transport)
+    monkeypatch.setenv("MCP_HTTP_PORT", "auto")
+    with pytest.raises(ValueError, match="MCP_HTTP_PORT must be an integer"):
+        get_transport_config_from_env()

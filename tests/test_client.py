@@ -238,3 +238,13 @@ def test_branch_ignored_when_branching_disabled(config):
 def test_default_branch_requires_branching():
     with pytest.raises(ValueError, match="NETBOX_BRANCHING_ENABLED"):
         NetBoxConfig(netbox_url="https://netbox.test", default_branch="feature")
+
+
+def test_disabled_feature_settings_are_not_validated():
+    """Leftover values of a disabled feature must not stop the server."""
+    config = NetBoxConfig(
+        netbox_url="https://netbox.test",
+        rate_limit_max_requests=0,
+        tool_search_max_results=0,
+    )
+    assert config.rate_limit_max_requests == 0

@@ -19,6 +19,7 @@ from netbox_mcp.object_types import set_plugin_object_types
 from netbox_mcp.retry import build_client
 from netbox_mcp.retry import parse_retry_after
 from netbox_mcp.retry import shared_transport
+from netbox_mcp.utils import HTTP_TRANSPORTS
 from netbox_mcp.utils import env_bool
 from netbox_mcp.utils import env_float
 from netbox_mcp.utils import env_int
@@ -580,6 +581,11 @@ def _plugin_type_entry(row: dict[str, Any]) -> tuple[str, str] | None:
     return f"{app_label}.{model}", endpoint
 
 
+def _env_setting(name: str, field: str) -> int:
+    """Read an integer setting, defaulting to NetBoxConfig's own default."""
+    return env_int(name, NetBoxConfig.model_fields[field].default)
+
+
 def get_netbox_config_from_env() -> NetBoxConfig:
     """Get NetBox configuration from environment variables."""
     # Parse disabled tags from comma-separated string
@@ -595,6 +601,33 @@ def get_netbox_config_from_env() -> NetBoxConfig:
         env_int("RESPONSE_MAX_SIZE", 0) if env_str("RESPONSE_MAX_SIZE") else None
     )
 
+    rate_limit_enabled = env_bool("RATE_LIMIT_ENABLED", default=False)
+    tool_search_enabled = env_bool("TOOL_SEARCH_ENABLED", default=False)
+
+    # Settings of a disabled feature are not read at all: a leftover value must
+    # not stop a server that never uses it, and NetBoxConfig's own defaults
+    # then apply. An unknown TOOL_SEARCH_STRATEGY used to fall back to bm25
+    # silently, hiding a typo such as "regx"; it is refused once search is on.
+    features: dict[str, Any] = {}
+    if rate_limit_enabled:
+        features["rate_limit_max_requests"] = _env_setting(
+            "RATE_LIMIT_MAX_REQUESTS", "rate_limit_max_requests"
+        )
+        features["rate_limit_window_minutes"] = _env_setting(
+            "RATE_LIMIT_WINDOW_MINUTES", "rate_limit_window_minutes"
+        )
+    if tool_search_enabled:
+        strategy = (env_str("TOOL_SEARCH_STRATEGY") or "bm25").lower()
+        if strategy not in ("bm25", "regex"):
+            raise ValueError(
+                "TOOL_SEARCH_STRATEGY must be 'bm25' or 'regex', "
+                f"got {os.getenv('TOOL_SEARCH_STRATEGY')!r}"
+            )
+        features["tool_search_strategy"] = strategy
+        features["tool_search_max_results"] = _env_setting(
+            "TOOL_SEARCH_MAX_RESULTS", "tool_search_max_results"
+        )
+
     return NetBoxConfig(
         netbox_url=env_str("NETBOX_URL") or "",
         token=env_str("NETBOX_TOKEN"),
@@ -608,24 +641,20 @@ def get_netbox_config_from_env() -> NetBoxConfig:
         dry_run_mode=env_bool("DRY_RUN_MODE", default=False),
         disabled_tags=disabled_tags,
         response_max_size=response_max_size,
-        rate_limit_enabled=env_bool("RATE_LIMIT_ENABLED", default=False),
-        rate_limit_max_requests=env_int("RATE_LIMIT_MAX_REQUESTS", 60),
-        rate_limit_window_minutes=env_int("RATE_LIMIT_WINDOW_MINUTES", 1),
-        tool_search_enabled=env_bool("TOOL_SEARCH_ENABLED", default=False),
-        tool_search_strategy=(
-            "regex"
-            if os.getenv("TOOL_SEARCH_STRATEGY", "bm25").lower() == "regex"
-            else "bm25"
-        ),
-        tool_search_max_results=env_int("TOOL_SEARCH_MAX_RESULTS", 5),
+        rate_limit_enabled=rate_limit_enabled,
+        tool_search_enabled=tool_search_enabled,
+        **features,
     )
 
 
 def get_transport_config_from_env() -> TransportConfig:
     """Get transport configuration from environment variables."""
+    transport_type = transport_from_env()
     return TransportConfig(
-        transport_type=transport_from_env(),
+        transport_type=transport_type,
         http_host=http_host_from_env(),
-        http_port=http_port_from_env(),
+        # The port is only parsed when an HTTP transport will bind it: a leftover
+        # non-numeric MCP_HTTP_PORT must not stop stdio or `fastmcp run`.
+        http_port=http_port_from_env() if transport_type in HTTP_TRANSPORTS else 8000,
         http_bearer_token=env_str("MCP_HTTP_BEARER_TOKEN"),
     )

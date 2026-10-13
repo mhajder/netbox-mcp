@@ -74,7 +74,6 @@ class NetBoxConfig(BaseModel):
     )
     tool_search_max_results: int = Field(
         5,
-        ge=1,
         description="Maximum number of tools returned by search_tools",
     )
 
@@ -87,6 +86,26 @@ class NetBoxConfig(BaseModel):
                 "NETBOX_BRANCH is set but branching is disabled - set "
                 "NETBOX_BRANCHING_ENABLED=true (requires the netbox-branching plugin)"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _check_enabled_features(self) -> "NetBoxConfig":
+        """Validate the settings of enabled features only.
+
+        A disabled feature's leftover values (RATE_LIMIT_MAX_REQUESTS=0 as a
+        way to say "off", for instance) must not stop the server, but once the
+        feature is on, a zero or negative value would reject every call (rate
+        limiting) or return no tools (tool search) without explanation.
+        """
+        positive = {}
+        if self.rate_limit_enabled:
+            positive["RATE_LIMIT_MAX_REQUESTS"] = self.rate_limit_max_requests
+            positive["RATE_LIMIT_WINDOW_MINUTES"] = self.rate_limit_window_minutes
+        if self.tool_search_enabled:
+            positive["TOOL_SEARCH_MAX_RESULTS"] = self.tool_search_max_results
+        bad = [f"{name}={value}" for name, value in positive.items() if value < 1]
+        if bad:
+            raise ValueError(f"must be at least 1: {', '.join(bad)}")
         return self
 
 
