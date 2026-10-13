@@ -83,8 +83,10 @@ def test_transport_from_env(monkeypatch, raw, expected):
     [
         (None, "127.0.0.1"),
         ("0.0.0.0", "0.0.0.0"),  # noqa: S104
-        # Kept as is: uvicorn binds every interface for an empty host.
-        ("", ""),
+        # Blank means loopback, not every interface.
+        ("", "127.0.0.1"),
+        ("   ", "127.0.0.1"),
+        (" 0.0.0.0 ", "0.0.0.0"),  # noqa: S104
         ("[::]", "::"),
         ("[fd00::5]", "fd00::5"),
     ],

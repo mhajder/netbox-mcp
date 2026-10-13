@@ -135,11 +135,13 @@ def transport_from_env() -> str:
 
 def http_host_from_env() -> str:
     """
-    Return MCP_HTTP_HOST without IPv6 brackets, defaulting to loopback when unset.
+    Return MCP_HTTP_HOST stripped and without IPv6 brackets.
 
-    An empty value is kept: uvicorn then binds every interface.
+    Unset, blank or whitespace-only means loopback: an empty host would make
+    uvicorn bind every interface, so listening publicly needs an explicit
+    '0.0.0.0' or '::'.
     """
-    host = os.getenv("MCP_HTTP_HOST", "127.0.0.1")
+    host = env_str("MCP_HTTP_HOST") or "127.0.0.1"
     # Accept the URL form of an IPv6 literal ('[::]'); uvicorn needs it bare.
     if host.startswith("[") and host.endswith("]"):
         host = host[1:-1]
