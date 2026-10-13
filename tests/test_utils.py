@@ -64,8 +64,9 @@ def test_env_bool_treats_blank_as_unset(monkeypatch):
         ("stdio", "stdio"),
         ("SSE", "sse"),
         ("HTTP", "http"),
-        # Not stripped: main() runs stdio for this, as before.
-        (" http ", " http "),
+        ("", "stdio"),
+        ("   ", "stdio"),
+        (" http ", "http"),
         # FastMCP's name for the streamable HTTP transport.
         ("streamable-http", "http"),
     ],

@@ -123,13 +123,13 @@ def env_float(name: str, default: float) -> float:
 
 def transport_from_env() -> str:
     """
-    Return MCP_TRANSPORT lowercased, defaulting to 'stdio' when unset.
+    Return MCP_TRANSPORT stripped and lowercased; unset or blank means 'stdio'.
 
     A value outside HTTP_TRANSPORTS runs the stdio transport.
 
     'streamable-http' is read as 'http', FastMCP's name for that transport.
     """
-    transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+    transport = (env_str("MCP_TRANSPORT") or "stdio").lower()
     return TRANSPORT_ALIASES.get(transport, transport)
 
 

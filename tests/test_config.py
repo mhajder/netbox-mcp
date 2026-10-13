@@ -158,7 +158,7 @@ def test_strategy_typo_rejected_when_search_enabled(monkeypatch):
         get_netbox_config_from_env()
 
 
-@pytest.mark.parametrize("transport", [None, "stdio"])
+@pytest.mark.parametrize("transport", [None, "stdio", " "])
 def test_port_ignored_under_stdio(monkeypatch, transport):
     """A leftover MCP_HTTP_PORT must not stop stdio or `fastmcp run`."""
     if transport is not None:
@@ -167,7 +167,7 @@ def test_port_ignored_under_stdio(monkeypatch, transport):
     assert get_transport_config_from_env().http_port == 8000
 
 
-@pytest.mark.parametrize("transport", ["http", "sse"])
+@pytest.mark.parametrize("transport", ["http", "sse", " HTTP "])
 def test_port_parsed_for_http_transports(monkeypatch, transport):
     monkeypatch.setenv("MCP_TRANSPORT", transport)
     monkeypatch.setenv("MCP_HTTP_PORT", "auto")
