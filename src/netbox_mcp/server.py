@@ -29,6 +29,8 @@ from netbox_mcp.sentry_init import init_sentry
 from netbox_mcp.tools import register_tools
 from netbox_mcp.utils import HEALTH_PATH
 from netbox_mcp.utils import HTTP_TRANSPORTS
+from netbox_mcp.utils import TRANSPORT_ALIASES
+from netbox_mcp.utils import VALID_TRANSPORTS
 
 # Load environment variables
 load_dotenv()
@@ -186,6 +188,18 @@ if NETBOX_CONFIG.rate_limit_enabled:
 
 
 def main():
+    # A typo must not fall back to stdio: the HTTP port would never open while
+    # the container healthcheck, which skips non-HTTP transports, kept reporting
+    # healthy. Checked here rather than at import, because `fastmcp run` imports
+    # this module but picks the transport itself.
+    if TRANSPORT_CONFIG.transport_type not in VALID_TRANSPORTS:
+        logger.error(
+            "Unknown MCP_TRANSPORT %r. Valid values: %s",
+            TRANSPORT_CONFIG.transport_type,
+            ", ".join([*sorted(VALID_TRANSPORTS), *TRANSPORT_ALIASES]),
+        )
+        raise SystemExit(1)
+
     if not NETBOX_CONFIG.netbox_url:
         logger.error("Missing required NetBox URL (NETBOX_URL). Check your .env file.")
         raise SystemExit(1)
@@ -266,7 +280,7 @@ def main():
             port=TRANSPORT_CONFIG.http_port,
         )
     else:
-        # Default to STDIO transport
+        # STDIO transport
         logger.info("Using STDIO transport")
         mcp.run()
 

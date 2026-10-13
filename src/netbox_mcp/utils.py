@@ -9,11 +9,13 @@ BOOL_HELP = ", ".join(
     f"{t}/{f}" for t, f in zip(TRUTHY_VALUES, FALSY_VALUES, strict=True)
 )
 
-# MCP_TRANSPORT values that serve HTTP. Any other value runs stdio.
+# MCP_TRANSPORT values that serve HTTP.
 HTTP_TRANSPORTS = frozenset({"sse", "http"})
 # FastMCP calls the streamable HTTP transport "streamable-http"; accept that
 # spelling for the "http" transport this server documents.
 TRANSPORT_ALIASES = {"streamable-http": "http"}
+# Every transport MCP_TRANSPORT can select; main() refuses anything else.
+VALID_TRANSPORTS = HTTP_TRANSPORTS | {"stdio"}
 
 # Liveness endpoint served on the HTTP transports and probed by the container
 # healthcheck.
@@ -125,7 +127,7 @@ def transport_from_env() -> str:
     """
     Return MCP_TRANSPORT stripped and lowercased; unset or blank means 'stdio'.
 
-    A value outside HTTP_TRANSPORTS runs the stdio transport.
+    main() stops on any value outside VALID_TRANSPORTS.
 
     'streamable-http' is read as 'http', FastMCP's name for that transport.
     """
