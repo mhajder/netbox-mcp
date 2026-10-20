@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "NetBox MCP Server"
+abstract: "MCP server for NetBox (DCIM/IPAM): generic tools for every object type, search, change log, GraphQL, IP/prefix/VLAN/ASN allocation, cable tracing, config rendering, plugin discovery and optional netbox-branching. Read-only and dry-run modes."
+authors:
+  - given-names: Mateusz
+    family-names: Hajder
+repository-code: "https://github.com/mhajder/netbox-mcp"
+url: "https://pypi.org/project/netbox-mcp/"
+license: MIT
+version: 0.2.0
+keywords:
+  - mcp
+  - mcp-server
+  - model-context-protocol
+  - fastmcp
+  - ai-agents
+  - netbox
+  - dcim
+  - ipam
+  - source-of-truth
