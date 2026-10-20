@@ -1,10 +1,26 @@
+<div align="center">
+
 # NetBox MCP Server
+
+**Give AI agents structured access to NetBox, your network source of truth**
+
+[![PyPI](https://img.shields.io/pypi/v/netbox-mcp?logo=pypi&logoColor=white)](https://pypi.org/project/netbox-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/netbox-mcp?logo=python&logoColor=white)](https://pypi.org/project/netbox-mcp/)
+[![License](https://img.shields.io/github/license/mhajder/netbox-mcp)](https://github.com/mhajder/netbox-mcp/blob/main/LICENSE)
+
+[![Pre-commit Checks](https://github.com/mhajder/netbox-mcp/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/mhajder/netbox-mcp/actions/workflows/pre-commit.yml)
+[![Docker](https://img.shields.io/badge/ghcr.io-netbox--mcp-2496ED?logo=docker&logoColor=white)](https://github.com/mhajder/netbox-mcp/pkgs/container/netbox-mcp)
+[![MCP Registry](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fregistry.modelcontextprotocol.io%2Fv0.1%2Fservers%2Fio.github.mhajder%252Fnetbox-mcp%2Fversions%2Flatest&query=%24.server.version&label=MCP%20Registry&color=6E56CF)](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.mhajder%2Fnetbox-mcp/versions/latest)
+
+[Installation](https://github.com/mhajder/netbox-mcp#-installation) · [Tools](https://github.com/mhajder/netbox-mcp#-available-tools) · [Configuration](https://github.com/mhajder/netbox-mcp#-configuration) · [Security](https://github.com/mhajder/netbox-mcp#-security--safety-features)
+
+</div>
 
 <!-- mcp-name: io.github.mhajder/netbox-mcp -->
 
 NetBox MCP Server is a Python-based Model Context Protocol (MCP) server that gives AI assistants structured access to [NetBox](https://netbox.dev) - the source of truth for network infrastructure (DCIM and IPAM). A small set of generic tools covers all 139 core object types of NetBox 4.7 (and plugin types, if enabled), plus specialised tools for search, change logs, GraphQL, free IP/prefix/VLAN allocation, cable tracing, config rendering and (optionally) netbox-branching. Writes can be hidden entirely (read-only mode) or simulated (dry-run mode).
 
-## Features
+## ✨ Features
 
 ### Core Features
 
@@ -34,7 +50,7 @@ NetBox MCP Server is a Python-based Model Context Protocol (MCP) server that giv
 - Multiple transport options (STDIO, SSE, HTTP)
 - Optional Sentry integration for error tracking
 
-## Installation
+## 🚀 Installation
 
 ### Prerequisites
 
@@ -137,7 +153,7 @@ uv run prek install
 ```
 
 
-## Configuration
+## 🔧 Configuration
 
 ### Environment Variables
 
@@ -234,7 +250,7 @@ TOOL_SEARCH_MAX_RESULTS=5
 # NETBOX_TOKEN_PASSTHROUGH=false
 ```
 
-## Available Tools
+## 🧰 Available Tools
 
 Object types are named `app.model`, as NetBox itself names them (`dcim.device`, `ipam.prefix`, `virtualization.virtualmachine`). API paths such as `dcim/devices` are accepted too. With branching enabled, every tool that reads or writes objects also takes an optional `branch` argument.
 
@@ -277,7 +293,7 @@ Object types are named `app.model`, as NetBox itself names them (`dcim.device`, 
 
 Every tool is tagged `netbox` plus a group tag, which `DISABLED_TAGS` can switch off: `objects`, `search`, `changelog`, `status`, `graphql`, `ipam`, `dcim`, `config`, `branching`, `write` and `delete`. Read tools also carry `read-only`.
 
-## Security & Safety Features
+## 🔒 Security & Safety Features
 
 ### Read-Only Mode
 
@@ -539,16 +555,12 @@ curl http://localhost:8000/health
 
 For more information on FastMCP transports, see the [FastMCP documentation](https://gofastmcp.com/deployment/running-server#transport-protocols).
 
-## Contributing
+## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests and ensure code quality (`uv run pytest && uv run ruff check .`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+Contributions are welcome. See [CONTRIBUTING.md](https://github.com/mhajder/netbox-mcp/blob/main/CONTRIBUTING.md) for the dev setup, checks and commit message format, and use the [issue templates](https://github.com/mhajder/netbox-mcp/issues/new/choose) for bugs and feature requests.
 
-## License
+Found a security problem? Please report it privately as described in [SECURITY.md](https://github.com/mhajder/netbox-mcp/blob/main/SECURITY.md).
 
-MIT License - see LICENSE file for details.
+## 📜 License
+
+MIT License - see [LICENSE](https://github.com/mhajder/netbox-mcp/blob/main/LICENSE) for details.
