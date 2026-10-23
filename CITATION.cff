@@ -9,7 +9,7 @@ authors:
 repository-code: "https://github.com/mhajder/netbox-mcp"
 url: "https://pypi.org/project/netbox-mcp/"
 license: MIT
-version: 0.2.0
+version: 0.2.1
 keywords:
   - mcp
   - mcp-server
