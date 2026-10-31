@@ -18,7 +18,7 @@
 
 <!-- mcp-name: io.github.mhajder/netbox-mcp -->
 
-NetBox MCP Server is a Python-based Model Context Protocol (MCP) server that gives AI assistants structured access to [NetBox](https://netbox.dev) - the source of truth for network infrastructure (DCIM and IPAM). A small set of generic tools covers all 139 core object types of NetBox 4.7 (and plugin types, if enabled), plus specialised tools for search, change logs, GraphQL, free IP/prefix/VLAN allocation, cable tracing, config rendering and (optionally) netbox-branching. Writes can be hidden entirely (read-only mode) or simulated (dry-run mode).
+NetBox MCP Server is a Python-based Model Context Protocol (MCP) server that gives AI assistants structured access to [NetBox](https://netbox.dev) - the source of truth for network infrastructure (DCIM and IPAM). A small set of generic tools covers all 139 core object types of NetBox 4.7 (and plugin types, if enabled), plus specialised tools for search, change logs, GraphQL, free IP/prefix/VLAN allocation, prefix utilization, free rack space, cable tracing and connecting, config rendering, custom scripts and (optionally) netbox-branching. Writes can be hidden entirely (read-only mode) or simulated (dry-run mode).
 
 ## ✨ Features
 
@@ -30,11 +30,14 @@ NetBox MCP Server is a Python-based Model Context Protocol (MCP) server that giv
 - Read the change log (who changed what, when) and NetBox status/version/plugins
 - Run read-only GraphQL queries for nested data in one round trip
 - List free IPs, prefixes, VLANs and ASNs; trace cable paths; render device configs
+- Compute prefix utilization (as the NetBox UI shows it) and find racks with room for a device
 
 ### Management Operations
 
 - Create, update and delete any object type, singly or in bulk (NetBox runs a bulk write as one transaction)
 - Allocate the next free IP, prefix, VLAN or ASN atomically
+- Connect ports with a cable, naming them by device and port name
+- Run NetBox custom scripts (changes rolled back unless `commit` is set)
 - Optionally stage changes in a netbox-branching branch instead of main
 - Describe an object type's writable fields and choices before writing
 
@@ -274,6 +277,8 @@ Object types are named `app.model`, as NetBox itself names them (`dcim.device`, 
 | `netbox_get_available` | Free IPs / prefixes in a prefix or IP range, VLANs in a VLAN group, ASNs in an ASN range |
 | `netbox_trace_cable` | Full cable path from an interface, front/rear/console/power port or circuit termination |
 | `netbox_render_config` | Render a device's or VM's configuration from its config template |
+| `netbox_get_prefix_utilization` | Utilization of up to 25 prefixes, computed as NetBox's UI does (child prefixes for containers, IPs and utilized ranges otherwise) |
+| `netbox_find_rack_space` | Racks in a site, location or list with room for a device of a given height (counts both faces for full-depth devices, and reservations) |
 | `netbox_list_branches` | List netbox-branching branches (only with `NETBOX_BRANCHING_ENABLED=true`) |
 
 ### Write
@@ -285,19 +290,21 @@ Object types are named `app.model`, as NetBox itself names them (`dcim.device`, 
 | `netbox_bulk_create_objects` | Create up to 500 objects in one transaction |
 | `netbox_bulk_update_objects` | Update up to 500 objects in one transaction |
 | `netbox_allocate_available` | Allocate the next free IP, prefix, VLAN or ASN |
+| `netbox_connect_cable` | Cable ports together, given by ID or by device and port name; refuses ports that are already cabled |
+| `netbox_run_script` | Run a custom script and wait for its log and output; `commit` defaults to false (`destructiveHint`) |
 | `netbox_create_branch` | Create a netbox-branching branch (only with `NETBOX_BRANCHING_ENABLED=true`) |
 | `netbox_delete_object` | Delete one object (`destructiveHint`) |
 | `netbox_bulk_delete_objects` | Delete up to 500 objects in one transaction (`destructiveHint`) |
 
 ### Tool Tags
 
-Every tool is tagged `netbox` plus a group tag, which `DISABLED_TAGS` can switch off: `objects`, `search`, `changelog`, `status`, `graphql`, `ipam`, `dcim`, `config`, `branching`, `write` and `delete`. Read tools also carry `read-only`.
+Every tool is tagged `netbox` plus a group tag, which `DISABLED_TAGS` can switch off: `objects`, `search`, `changelog`, `status`, `graphql`, `ipam`, `dcim`, `config`, `branching`, `scripts`, `write` and `delete`. Read tools also carry `read-only`.
 
 ## 🔒 Security & Safety Features
 
 ### Read-Only Mode
 
-Read-only mode hides every write tool - the client only sees the 11 read tools (12 with branching enabled):
+Read-only mode hides every write tool - the client only sees the 13 read tools (14 with branching enabled):
 
 ```env
 READ_ONLY_MODE=true

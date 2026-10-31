@@ -116,3 +116,53 @@ async def test_write_sent_when_dry_run_off(config, client_for, netbox):
         )
     assert result.structured_content["object"]["id"] == 9
     assert len(netbox.sent("POST")) == 1
+
+
+async def test_run_script_is_previewed(dry_config, client_for, netbox):
+    netbox.get(
+        "extras/scripts/cleanup.StaleIPs",
+        payload={"id": 4, "display": "Stale IPs", "name": "StaleIPs", "vars": {}},
+    )
+    async with client_for(dry_config) as client:
+        result = await client.call_tool(
+            "netbox_run_script",
+            {"script": "cleanup.StaleIPs", "commit": True},
+        )
+    data = result.structured_content
+    assert data["dry_run"] is True
+    assert data["endpoint"] == "/api/extras/scripts/cleanup.StaleIPs/"
+    assert data["payload"] == {"data": {}, "commit": True}
+    assert data["script"]["display"] == "Stale IPs"
+    assert_no_writes(netbox)
+
+
+async def test_connect_cable_is_previewed(dry_config, client_for, netbox):
+    for port_id, device in ((7, "sw01"), (8, "sw02")):
+        netbox.get(
+            f"dcim/interfaces/{port_id}",
+            payload={
+                "id": port_id,
+                "display": "eth1",
+                "device": {"id": port_id, "display": device},
+                "cable": None,
+            },
+        )
+    async with client_for(dry_config) as client:
+        result = await client.call_tool(
+            "netbox_connect_cable",
+            {
+                "a_terminations": [{"object_type": "dcim.interface", "object_id": 7}],
+                "b_terminations": [{"object_type": "dcim.interface", "object_id": 8}],
+            },
+        )
+    data = result.structured_content
+    assert data["dry_run"] is True
+    assert data["endpoint"] == "/api/dcim/cables/"
+    assert data["payload"]["b_terminations"] == [
+        {"object_type": "dcim.interface", "object_id": 8}
+    ]
+    assert [end["device"] for end in data["a_ends"] + data["b_ends"]] == [
+        "sw01",
+        "sw02",
+    ]
+    assert_no_writes(netbox)

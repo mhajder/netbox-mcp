@@ -41,6 +41,13 @@ DELETE_ANNOTATIONS = {
     "idempotentHint": False,
     "openWorldHint": True,
 }
+# A custom script can do anything, including deleting objects.
+RUN_ANNOTATIONS = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
 
 # NetBox added ?omit= in 4.5.2.
 OMIT_MIN_VERSION = (4, 5, 2)

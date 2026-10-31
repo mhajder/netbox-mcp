@@ -13,6 +13,8 @@ READ_TOOLS = {
     "netbox_get_available",
     "netbox_trace_cable",
     "netbox_render_config",
+    "netbox_find_rack_space",
+    "netbox_get_prefix_utilization",
 }
 WRITE_TOOLS = {
     "netbox_create_object",
@@ -22,6 +24,8 @@ WRITE_TOOLS = {
     "netbox_allocate_available",
     "netbox_delete_object",
     "netbox_bulk_delete_objects",
+    "netbox_run_script",
+    "netbox_connect_cable",
 }
 BRANCH_TOOLS = {"netbox_list_branches", "netbox_create_branch"}
 

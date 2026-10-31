@@ -90,7 +90,7 @@ def available_path(parent_type: str, parent_id: int, kind: str) -> str:
     return f"{endpoint}/{parent_id}/available-{kind}"
 
 
-def _node(obj: Any) -> Any:
+def describe_endpoint(obj: Any) -> Any:
     """Summarize one cable-path endpoint: what it is and which device it is on."""
     if not isinstance(obj, dict):
         return obj
@@ -259,7 +259,7 @@ def register_extras_tools(
                             "is_complete": path.get("is_complete"),
                             "is_split": path.get("is_split"),
                             "nodes": [
-                                [_node(n) for n in step]
+                                [describe_endpoint(n) for n in step]
                                 for step in path.get("path", [])
                             ],
                         }
@@ -272,9 +272,9 @@ def register_extras_tools(
                 near, cable, far = [*segment, None, None, None][:3]
                 hops.append(
                     {
-                        "near_end": [_node(n) for n in near or []],
-                        "cable": _node(cable) if cable else None,
-                        "far_end": [_node(n) for n in far or []],
+                        "near_end": [describe_endpoint(n) for n in near or []],
+                        "cable": describe_endpoint(cable) if cable else None,
+                        "far_end": [describe_endpoint(n) for n in far or []],
                     }
                 )
             return {

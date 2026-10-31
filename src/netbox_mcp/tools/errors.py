@@ -48,6 +48,11 @@ def describe(exc: Exception) -> str:
                 "The pool has fewer free resources than requested; request fewer "
                 "or use a larger pool (netbox_get_available lists what is free)."
             )
+        elif exc.status == 503 and exc.path.startswith("extras/scripts"):
+            hint = (
+                "NetBox has no background worker running; scripts need "
+                "'manage.py rqworker' on the NetBox server."
+            )
         text = f"HTTP {exc.status} from NetBox ({exc.method} {exc.path}): {body}"
         return f"{text}. {hint}" if hint else text
     # Some exceptions carry no message at all (asyncio.TimeoutError), so the
