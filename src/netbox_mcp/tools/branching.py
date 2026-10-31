@@ -73,7 +73,8 @@ def register_branching_tools(
     ) -> dict:
         """List netbox-branching branches. Pass a branch 'name' as the 'branch'
         argument of other tools to read or write inside it (status must be
-        'ready').
+        'ready'). To review a branch's staged changes, call netbox_get_objects
+        on 'netbox_branching.changediff' with filters={'branch_id': <id>}.
         """
         try:
             params: dict[str, Any] = {
