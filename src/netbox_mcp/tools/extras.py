@@ -184,6 +184,11 @@ def register_extras_tools(
                 payload["variables"] = variables
             async with NetBoxClient(config, branch, transport=transport) as nb:
                 result = await nb.post("graphql", payload, absolute=True)
+            if not isinstance(result, dict):
+                raise ValueError(
+                    "Unexpected GraphQL response: expected a JSON object, got "
+                    f"{'an empty body' if result is None else type(result).__name__}"
+                )
             if result.get("errors") and not result.get("data"):
                 raise ValueError(f"GraphQL errors: {result['errors']}")
             return result
