@@ -177,3 +177,62 @@ async def test_utilization_tool_queries_children_in_vrf(config, client_for, netb
     assert ip_query["parent"] == "10.0.0.0/30"
     range_query = dict(next(r for r in netbox.requests if "ip-ranges" in r.path).query)
     assert range_query["mark_utilized"] == "true"
+
+
+async def utilization(client_for, config, *prefix_ids: int) -> dict:
+    async with client_for(config) as client:
+        result = await client.call_tool(
+            "netbox_get_prefix_utilization", {"prefix_ids": list(prefix_ids)}
+        )
+    return result.structured_content
+
+
+async def test_utilization_tool_trusts_mark_utilized(config, client_for, netbox):
+    netbox.get("ipam/prefixes/1", payload=prefix("10.0.0.0/24", mark_utilized=True))
+
+    data = await utilization(client_for, config, 1)
+
+    assert data["results"][0]["utilization_percent"] == 100.0
+    assert data["results"][0]["method"] == "mark_utilized"
+    # No children need reading.
+    assert [r.path for r in netbox.requests] == ["/api/ipam/prefixes/1/"]
+
+
+async def test_utilization_tool_reads_container_children_in_vrf(
+    config, client_for, netbox
+):
+    vrf = {"id": 4, "display": "blue", "name": "blue"}
+    netbox.get("ipam/prefixes/1", payload=prefix("10.0.0.0/16", "container", vrf=vrf))
+    netbox.get(
+        "ipam/prefixes",
+        payload={
+            "count": 300,
+            "next": None,
+            "results": [{"prefix": "10.0.0.0/24"}, {"prefix": "10.0.1.0/24"}],
+        },
+    )
+
+    data = await utilization(client_for, config, 1)
+
+    [result] = data["results"]
+    assert result["vrf"] == "blue"
+    assert result["method"] == "child_prefixes"
+    assert result["used"] == 512
+    # NetBox has more children than it returned: a lower bound only.
+    assert result["approximate"] is True
+    child_query = dict(netbox.requests[1].query)
+    assert child_query["vrf_id"] == "4"
+    assert child_query["within"] == "10.0.0.0/16"
+    assert child_query["fields"] == "prefix"
+
+
+async def test_utilization_tool_fails_on_other_errors(config, client_for, netbox):
+    netbox.get("ipam/prefixes/1", payload=prefix("10.0.0.0/24", mark_utilized=True))
+    netbox.get("ipam/prefixes/2", status=403, payload={"detail": "denied"})
+    async with client_for(config) as client:
+        with pytest.raises(
+            ToolError, match="Error computing prefix utilization: HTTP 403"
+        ):
+            await client.call_tool(
+                "netbox_get_prefix_utilization", {"prefix_ids": [1, 2]}
+            )

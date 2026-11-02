@@ -1,14 +1,17 @@
 import asyncio
 import logging
+from unittest.mock import MagicMock
 
 import httpx2
 import pytest
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth.auth import AccessToken
+from fastmcp.server.auth.auth import TokenVerifier
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from fastmcp.utilities.tests import asgi_client
 from fastmcp.utilities.tests import asgi_server
+from starlette.authentication import AuthenticationError
 
 from netbox_mcp import auth
 from netbox_mcp import netbox_client
@@ -948,3 +951,38 @@ async def test_verifier_forgets_expired_tokens(passthrough_config, netbox, monke
 
     cached = [entry[0].token for entry in verifier._cache.values()]
     assert cached == [USER_TOKEN]
+
+
+async def test_verifier_drops_expired_rejections(
+    passthrough_config, netbox, monkeypatch
+):
+    now = 1000.0
+    monkeypatch.setattr(auth.time, "monotonic", lambda: now)
+    netbox.get("authentication-check", status=401, payload={"detail": "no"})
+    verifier = NetBoxTokenVerifier(
+        passthrough_config, transport=netbox.transport, reject_ttl=30
+    )
+
+    await verifier.verify_token("nbt_old.x")
+    now += 31
+    await verifier.verify_token(USER_TOKEN)
+
+    assert list(verifier._rejected) == [token_fingerprint(USER_TOKEN)]
+
+
+def test_other_auth_errors_keep_starlettes_answer():
+    response = auth.auth_error_response(MagicMock(), AuthenticationError("bad header"))
+
+    assert response.status_code == 400
+    assert response.body == b"bad header"
+
+
+def test_verifier_refuses_to_start_without_its_error_handler(
+    passthrough_config, monkeypatch
+):
+    """Starlette's handler would answer 400 with the internal outage message."""
+    monkeypatch.setattr(TokenVerifier, "get_middleware", lambda _self: [])
+    verifier = NetBoxTokenVerifier(passthrough_config)
+
+    with pytest.raises(RuntimeError, match="auth middleware changed"):
+        verifier.get_middleware()

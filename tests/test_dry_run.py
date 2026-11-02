@@ -166,3 +166,52 @@ async def test_connect_cable_is_previewed(dry_config, client_for, netbox):
         "sw02",
     ]
     assert_no_writes(netbox)
+
+
+async def test_bulk_create_is_simulated(dry_config, client_for, netbox):
+    items = [{"name": "users", "vid": 10}, {"name": "voice", "vid": 20}]
+    async with client_for(dry_config) as client:
+        result = await client.call_tool(
+            "netbox_bulk_create_objects", {"object_type": "ipam.vlan", "data": items}
+        )
+    data = result.structured_content
+    assert data["dry_run"] is True
+    assert data["action"] == "bulk_create"
+    assert data["endpoint"] == "/api/ipam/vlans/"
+    assert data["count"] == 2
+    assert data["payload"] == items
+    assert not netbox.requests
+
+
+async def test_bulk_update_shows_current_values(dry_config, client_for, netbox):
+    netbox.get(
+        "dcim/sites",
+        payload={
+            "results": [
+                {"id": 1, "status": "planned", "name": "a"},
+                {"id": 2, "status": "active", "name": "b"},
+            ]
+        },
+    )
+    items = [
+        {"id": 1, "status": "active"},
+        {"id": 2, "status": "retired"},
+        {"id": 3, "status": "active"},
+    ]
+    async with client_for(dry_config) as client:
+        result = await client.call_tool(
+            "netbox_bulk_update_objects", {"object_type": "dcim.site", "data": items}
+        )
+    data = result.structured_content
+    assert data["dry_run"] is True
+    assert data["count"] == 3
+    # JSON object keys are strings.
+    assert data["current_values"] == {
+        "1": {"id": 1, "status": "planned"},
+        "2": {"id": 2, "status": "active"},
+    }
+    assert data["not_found"] == [3]
+    query = netbox.sent("GET")[0].query
+    assert [v for k, v in query if k == "id"] == ["1", "2", "3"]
+    assert ("limit", "3") in query
+    assert_no_writes(netbox)

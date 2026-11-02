@@ -248,3 +248,147 @@ def test_disabled_feature_settings_are_not_validated():
         tool_search_max_results=0,
     )
     assert config.rate_limit_max_requests == 0
+
+
+async def test_no_authorization_header_without_a_token(netbox):
+    config = NetBoxConfig(netbox_url="https://netbox.test")
+    netbox.get("status", payload={})
+    async with NetBoxClient(config, transport=netbox.transport) as nb:
+        await nb.get("status")
+    assert "authorization" not in netbox.requests[0].headers
+
+
+async def test_request_outside_context_is_refused(config, netbox):
+    nb = NetBoxClient(config, transport=netbox.transport)
+    with pytest.raises(RuntimeError, match="async context manager"):
+        await nb.get("dcim/sites")
+    assert not netbox.requests
+
+
+async def test_non_json_error_body_is_kept_as_text(config):
+    page = "<html>" + "x" * 3000 + "</html>"
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(502, text=page)
+
+    async with NetBoxClient(config, transport=httpx2.MockTransport(handler)) as nb:
+        with pytest.raises(NetBoxAPIError) as info:
+            await nb.get("dcim/sites")
+    assert info.value.status == 502
+    assert info.value.body == page[:2000]
+
+
+async def test_branch_lookup_without_branching_plugin(config, netbox):
+    config.branching_enabled = True
+    netbox.get("plugins/branching/branches", status=404, payload={"detail": "x"})
+    async with NetBoxClient(config, branch="feature", transport=netbox.transport) as nb:
+        with pytest.raises(ValueError, match="needs the netbox-branching plugin"):
+            await nb.get("dcim/sites")
+    assert len(netbox.requests) == 1
+
+
+async def test_branch_lookup_error_is_raised(config, netbox):
+    config.branching_enabled = True
+    netbox.get("plugins/branching/branches", status=403, payload={"detail": "no"})
+    async with NetBoxClient(config, branch="feature", transport=netbox.transport) as nb:
+        with pytest.raises(NetBoxAPIError) as info:
+            await nb.get("dcim/sites")
+    assert info.value.status == 403
+    assert len(netbox.requests) == 1
+
+
+async def test_unknown_branch_name_shaped_like_schema_id_is_used_as_is(config, netbox):
+    config.branching_enabled = True
+    netbox.get("plugins/branching/branches", payload={"results": []})
+    netbox.get("dcim/sites", payload={"results": []})
+    async with NetBoxClient(
+        config, branch="td5smq0f", transport=netbox.transport
+    ) as nb:
+        await nb.get("dcim/sites")
+    lookup, site_call = netbox.sent("GET")
+    assert dict(lookup.query)["name"] == "td5smq0f"
+    assert site_call.headers["X-NetBox-Branch"] == "td5smq0f"
+
+
+async def test_concurrent_discovery_runs_one_scan(config):
+    config.plugin_discovery = True
+    calls = 0
+
+    async def handler(_request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        # Let the second caller reach the lock while the scan is running.
+        await asyncio.sleep(0.01)
+        return httpx2.Response(200, json={"next": None, "results": []})
+
+    async with NetBoxClient(config, transport=httpx2.MockTransport(handler)) as nb:
+        counts = await asyncio.gather(
+            nb.discover_plugin_types(), nb.discover_plugin_types()
+        )
+    assert counts == [0, 0]
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"is_plugin_model": True, "app_label": "netbox_dns", "model": "zone"},
+        {
+            "is_plugin_model": True,
+            "app_label": "netbox_dns",
+            "model": "zone",
+            "rest_api_endpoint": "/api/dcim/zones/",
+        },
+    ],
+    ids=["no-endpoint", "outside-plugins"],
+)
+async def test_discovery_skips_unusable_plugin_rows(config, netbox, row):
+    config.plugin_discovery = True
+    netbox.get("core/object-types", payload={"next": None, "results": [row]})
+    async with NetBoxClient(config, transport=netbox.transport) as nb:
+        assert await nb.discover_plugin_types() == 0
+        with pytest.raises(ValueError, match="Unknown object type"):
+            await nb.resolve("netbox_dns.zone")
+
+
+async def _retry_delays(monkeypatch, retry_after: str) -> list[float]:
+    delays: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        delays.append(seconds)
+
+    monkeypatch.setattr(retry, "BASE_BACKOFF", 0.5)
+    monkeypatch.setattr(retry.asyncio, "sleep", fake_sleep)
+    responses = iter([429, 200])
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(next(responses), headers={"Retry-After": retry_after})
+
+    transport = retry.RetryTransport(httpx2.MockTransport(handler), owns_wrapped=False)
+    response = await transport.handle_async_request(
+        httpx2.Request("GET", "https://netbox.test/api/dcim/sites/")
+    )
+    assert response.status_code == 200
+    return delays
+
+
+async def test_retry_waits_as_long_as_retry_after_says(monkeypatch):
+    assert await _retry_delays(monkeypatch, "2") == [2.0]
+
+
+async def test_retry_ignores_a_retry_after_beyond_the_cap(monkeypatch):
+    """Blocking a tool call for an hour is worse than failing it."""
+    assert await _retry_delays(monkeypatch, "3600") == [retry.BASE_BACKOFF]
+
+
+@pytest.mark.parametrize("owns", [True, False])
+async def test_retry_transport_closes_only_what_it_owns(owns):
+    class TrackingTransport(httpx2.MockTransport):
+        closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    wrapped = TrackingTransport(lambda _r: httpx2.Response(200))
+    await retry.RetryTransport(wrapped, owns_wrapped=owns).aclose()
+    assert wrapped.closed is owns

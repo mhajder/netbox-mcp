@@ -279,3 +279,45 @@ async def test_run_script_is_destructive(config, client_for):
         tools = {tool.name: tool for tool in await client.list_tools()}
     assert tools["netbox_run_script"].annotations.destructive_hint is True
     assert tools["netbox_connect_cable"].annotations.destructive_hint is False
+
+
+async def test_pause_sleeps(monkeypatch):
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(actions.asyncio, "sleep", fake_sleep)
+    await actions._pause(2)
+    assert slept == [2]
+
+
+async def test_run_script_keeps_non_dict_job_data(config, client_for, netbox, pauses):
+    netbox.post("extras/scripts/4", payload={"result": job("pending")})
+    netbox.get("core/jobs/9", payload=job("errored", data="Traceback: boom"))
+    async with client_for(config) as client:
+        result = await client.call_tool("netbox_run_script", {"script": 4})
+    data = result.structured_content
+    assert data["job"]["status"] == "errored"
+    assert data["job"]["data"] == "Traceback: boom"
+    assert pauses == [1]
+
+
+@pytest.mark.parametrize(
+    "answer", [{"detail": "queued"}, {"result": {"status": "pending"}}, None]
+)
+async def test_run_script_without_job_returns_netbox_answer(
+    config, client_for, netbox, pauses, answer
+):
+    netbox.post("extras/scripts/4", payload=answer)
+    async with client_for(config) as client:
+        result = await client.call_tool(
+            "netbox_run_script", {"script": 4, "commit": True}
+        )
+    assert result.structured_content == {
+        "success": True,
+        "committed": True,
+        "response": answer or {},
+    }
+    assert not pauses
+    assert not netbox.sent("GET")

@@ -145,6 +145,10 @@ TrUe = "TrUe"
 [tool.typos.default.extend-words]
 certifi = "certifi"
 
+[tool.coverage.report]
+# Entry-point guards only call main(), which the tests run directly.
+exclude_also = ['if __name__ == "__main__":']
+
 [tool.commitizen]
 name = "cz_conventional_commits"
 tag_format = "v$version"
