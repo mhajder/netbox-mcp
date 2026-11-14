@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1](https://github.com/mhajder/netbox-mcp/compare/v0.3.0...v0.3.1) (2026-11-14)
+
+
+### 📦 Build
+
+* **deps:** bump dnspython from 2.9.0 to 2.9.2 ([#29](https://github.com/mhajder/netbox-mcp/issues/29)) ([0460c3a](https://github.com/mhajder/netbox-mcp/commit/0460c3af1a2dfedad60692832934a0f2245da0b1))
+* **deps:** bump docker/login-action ([#22](https://github.com/mhajder/netbox-mcp/issues/22)) ([481ff6f](https://github.com/mhajder/netbox-mcp/commit/481ff6f79f8da0f66ddd65f1a83093d234de4c8f))
+* **deps:** bump opentelemetry-api from 1.45.1 to 1.45.2 ([#28](https://github.com/mhajder/netbox-mcp/issues/28)) ([2a8e595](https://github.com/mhajder/netbox-mcp/commit/2a8e595cd80ad7e38eb68fa71463ae3097a85a39))
+
 ## [0.3.0](https://github.com/mhajder/netbox-mcp/compare/v0.2.1...v0.3.0) (2026-11-07)
 
 
