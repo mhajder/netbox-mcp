@@ -60,13 +60,18 @@ def load_server(monkeypatch):
     # A developer's .env must not leak into the tests.
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *_args, **_kwargs: False)
 
-    def factory(**env: str):
+    def factory(*, register_tools: bool = True, **env: str):
         env.setdefault("NETBOX_URL", "https://netbox.test")
         env.setdefault("NETBOX_TOKEN", "nbt_abc.secret")
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         sys.modules.pop(MODULE, None)
-        module = importlib.import_module(MODULE)
+        if register_tools:
+            module = importlib.import_module(MODULE)
+        else:
+            with monkeypatch.context() as m:
+                m.setattr("netbox_mcp.tools.register_tools", lambda *_a, **_kw: None)
+                module = importlib.import_module(MODULE)
         monkeypatch.setattr(module.mcp, "run", MagicMock())
         return module
 
@@ -79,7 +84,7 @@ async def tool_names(module) -> set[str]:
 
 
 async def test_health_route_answers_ok(load_server):
-    server = load_server()
+    server = load_server(register_tools=False)
 
     response = await server.health(MagicMock())
 
@@ -148,7 +153,7 @@ async def test_tool_search_replaces_the_tool_list(
 
 
 def test_response_size_limit_adds_middleware(load_server):
-    server = load_server(RESPONSE_MAX_SIZE="4096")
+    server = load_server(register_tools=False, RESPONSE_MAX_SIZE="4096")
 
     [limit] = [
         m for m in server.mcp.middleware if isinstance(m, ResponseLimitingMiddleware)
@@ -158,6 +163,7 @@ def test_response_size_limit_adds_middleware(load_server):
 
 def test_rate_limiting_adds_middleware(load_server):
     server = load_server(
+        register_tools=False,
         RATE_LIMIT_ENABLED="true",
         RATE_LIMIT_MAX_REQUESTS="5",
         RATE_LIMIT_WINDOW_MINUTES="2",
@@ -173,7 +179,7 @@ def test_rate_limiting_adds_middleware(load_server):
 
 
 def test_optional_middleware_is_off_by_default(load_server):
-    server = load_server()
+    server = load_server(register_tools=False)
 
     assert not any(
         isinstance(m, SlidingWindowRateLimitingMiddleware | ResponseLimitingMiddleware)
@@ -182,7 +188,7 @@ def test_optional_middleware_is_off_by_default(load_server):
 
 
 def test_instructions_name_no_mode_by_default(load_server):
-    instructions = load_server().mcp.instructions
+    instructions = load_server(register_tools=False).mcp.instructions
 
     assert "netbox_get_objects" in instructions
     assert "READ-ONLY" not in instructions
@@ -193,7 +199,7 @@ def test_instructions_name_no_mode_by_default(load_server):
 def test_instructions_announce_read_only_mode(load_server):
     # Read-only wins over dry-run: there is nothing left to simulate.
     instructions = load_server(
-        READ_ONLY_MODE="true", DRY_RUN_MODE="true"
+        register_tools=False, READ_ONLY_MODE="true", DRY_RUN_MODE="true"
     ).mcp.instructions
 
     assert "READ-ONLY mode" in instructions
@@ -201,7 +207,9 @@ def test_instructions_announce_read_only_mode(load_server):
 
 
 def test_instructions_announce_dry_run_mode(load_server):
-    instructions = load_server(DRY_RUN_MODE="true").mcp.instructions
+    instructions = load_server(
+        register_tools=False, DRY_RUN_MODE="true"
+    ).mcp.instructions
 
     assert "DRY-RUN mode" in instructions
     assert "READ-ONLY" not in instructions
@@ -209,14 +217,14 @@ def test_instructions_announce_dry_run_mode(load_server):
 
 def test_instructions_name_the_default_branch(load_server):
     instructions = load_server(
-        NETBOX_BRANCHING_ENABLED="true", NETBOX_BRANCH="staging"
+        register_tools=False, NETBOX_BRANCHING_ENABLED="true", NETBOX_BRANCH="staging"
     ).mcp.instructions
 
     assert "netbox-branching branch 'staging' instead of main" in instructions
 
 
 def test_unknown_log_level_falls_back_to_info(load_server, caplog):
-    load_server(LOG_LEVEL="chatty")
+    load_server(register_tools=False, LOG_LEVEL="chatty")
 
     assert "Unknown LOG_LEVEL 'CHATTY'" in caplog.text
 
@@ -227,7 +235,7 @@ def test_version_falls_back_when_package_is_not_installed(load_server, monkeypat
 
     monkeypatch.setattr(importlib.metadata, "version", missing)
 
-    server = load_server()
+    server = load_server(register_tools=False)
 
     assert server.__version__ == "0.0.1"
     assert server.mcp.version == "0.0.1"
@@ -235,34 +243,41 @@ def test_version_falls_back_when_package_is_not_installed(load_server, monkeypat
 
 def test_invalid_configuration_is_logged_and_raised(load_server, caplog):
     with pytest.raises(ValueError, match="TOOL_SEARCH_STRATEGY"):
-        load_server(TOOL_SEARCH_ENABLED="true", TOOL_SEARCH_STRATEGY="regx")
+        load_server(
+            register_tools=False,
+            TOOL_SEARCH_ENABLED="true",
+            TOOL_SEARCH_STRATEGY="regx",
+        )
 
     assert "Invalid configuration" in caplog.text
 
 
 def test_token_passthrough_over_stdio_is_refused_at_import(load_server, caplog):
     with pytest.raises(ValueError, match="requires MCP_TRANSPORT=http or sse"):
-        load_server(NETBOX_TOKEN_PASSTHROUGH="true")
+        load_server(register_tools=False, NETBOX_TOKEN_PASSTHROUGH="true")
 
     assert "Invalid configuration" in caplog.text
 
 
 def test_bearer_token_enables_static_auth(load_server):
-    assert load_server().mcp.auth is None
+    assert load_server(register_tools=False).mcp.auth is None
     assert isinstance(
-        load_server(MCP_HTTP_BEARER_TOKEN="secret").mcp.auth, StaticTokenVerifier
+        load_server(register_tools=False, MCP_HTTP_BEARER_TOKEN="secret").mcp.auth,
+        StaticTokenVerifier,
     )
 
 
 def test_token_passthrough_enables_netbox_auth(load_server):
-    server = load_server(MCP_TRANSPORT="http", NETBOX_TOKEN_PASSTHROUGH="true")
+    server = load_server(
+        register_tools=False, MCP_TRANSPORT="http", NETBOX_TOKEN_PASSTHROUGH="true"
+    )
 
     assert isinstance(server.mcp.auth, NetBoxTokenVerifier)
 
 
 def test_main_runs_stdio_by_default(load_server, caplog):
     caplog.set_level(logging.INFO)
-    server = load_server()
+    server = load_server(register_tools=False)
 
     server.main()
 
@@ -275,7 +290,9 @@ def test_main_runs_stdio_by_default(load_server, caplog):
 
 def test_main_logs_the_active_modes(load_server, caplog):
     caplog.set_level(logging.INFO)
-    server = load_server(READ_ONLY_MODE="true", DRY_RUN_MODE="true")
+    server = load_server(
+        register_tools=False, READ_ONLY_MODE="true", DRY_RUN_MODE="true"
+    )
 
     server.main()
 
@@ -295,6 +312,7 @@ def test_main_runs_http_transports_on_the_configured_address(
 ):
     caplog.set_level(logging.INFO)
     server = load_server(
+        register_tools=False,
         MCP_TRANSPORT=transport,
         MCP_HTTP_HOST="192.0.2.10",
         MCP_HTTP_PORT="9001",
@@ -314,7 +332,7 @@ def test_main_runs_http_transports_on_the_configured_address(
 @pytest.mark.parametrize("transport", ["http", "sse"])
 def test_main_warns_when_http_runs_without_a_token(load_server, caplog, transport):
     caplog.set_level(logging.INFO)
-    server = load_server(MCP_TRANSPORT=transport)
+    server = load_server(register_tools=False, MCP_TRANSPORT=transport)
 
     server.main()
 
@@ -326,7 +344,10 @@ def test_main_warns_when_http_runs_without_a_token(load_server, caplog, transpor
 def test_main_with_token_passthrough_needs_no_server_token(load_server, caplog):
     caplog.set_level(logging.INFO)
     server = load_server(
-        MCP_TRANSPORT="http", NETBOX_TOKEN_PASSTHROUGH="true", NETBOX_TOKEN=""
+        register_tools=False,
+        MCP_TRANSPORT="http",
+        NETBOX_TOKEN_PASSTHROUGH="true",
+        NETBOX_TOKEN="",
     )
 
     server.main()
@@ -341,7 +362,9 @@ def test_main_with_token_passthrough_needs_no_server_token(load_server, caplog):
 
 
 def test_main_warns_that_passthrough_ignores_the_server_token(load_server, caplog):
-    server = load_server(MCP_TRANSPORT="sse", NETBOX_TOKEN_PASSTHROUGH="true")
+    server = load_server(
+        register_tools=False, MCP_TRANSPORT="sse", NETBOX_TOKEN_PASSTHROUGH="true"
+    )
 
     server.main()
 
@@ -351,7 +374,7 @@ def test_main_warns_that_passthrough_ignores_the_server_token(load_server, caplo
 
 def test_main_notes_a_legacy_v1_token(load_server, caplog):
     caplog.set_level(logging.INFO)
-    server = load_server(NETBOX_TOKEN="0123456789abcdef")
+    server = load_server(register_tools=False, NETBOX_TOKEN="0123456789abcdef")
 
     server.main()
 
@@ -361,7 +384,7 @@ def test_main_notes_a_legacy_v1_token(load_server, caplog):
 
 def test_main_accepts_a_v2_token_silently(load_server, caplog):
     caplog.set_level(logging.INFO)
-    server = load_server()
+    server = load_server(register_tools=False)
 
     server.main()
 
@@ -369,7 +392,7 @@ def test_main_accepts_a_v2_token_silently(load_server, caplog):
 
 
 def test_main_warns_about_plaintext_http(load_server, caplog):
-    server = load_server(NETBOX_URL="http://netbox.test")
+    server = load_server(register_tools=False, NETBOX_URL="http://netbox.test")
 
     server.main()
 
@@ -394,7 +417,7 @@ def test_main_warns_about_plaintext_http(load_server, caplog):
     ],
 )
 def test_main_refuses_to_start(load_server, caplog, env, message):
-    server = load_server(**env)
+    server = load_server(register_tools=False, **env)
 
     with pytest.raises(SystemExit) as exc:
         server.main()

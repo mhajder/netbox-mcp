@@ -66,7 +66,7 @@ def hung_port(monkeypatch) -> Iterator[int]:
     The kernel completes the TCP handshake from the listen backlog, so a plain
     connect would call this healthy.
     """
-    monkeypatch.setattr(healthcheck, "PROBE_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(healthcheck, "PROBE_TIMEOUT_SECONDS", 0.05)
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         sock.listen()
@@ -192,50 +192,71 @@ def _free_ports(count: int) -> list[int]:
         return [sock.getsockname()[1] for sock in socks]
 
 
-@pytest.fixture(scope="module")
-def real_servers(tmp_path_factory) -> Iterator[dict[str, tuple[subprocess.Popen, int]]]:
-    """Start every REAL_SERVER_CASES server at once.
+def _start_server(cwd, stderr: int, **env: str) -> subprocess.Popen:
+    """Run the real server entry point, configured by `env`."""
+    return subprocess.Popen(
+        [sys.executable, "-c", "import netbox_mcp.server as s; s.main()"],
+        env={
+            **os.environ,
+            "NETBOX_URL": "https://netbox.invalid",
+            "NETBOX_TOKEN": "t",
+            "SENTRY_DSN": "",
+            **env,
+        },
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=stderr,
+        text=True,
+    )
 
-    Each one spends about 1.5 s importing before it listens; started one test
-    at a time, that wait was paid once per case.
+
+@pytest.fixture(scope="module")
+def servers(
+    tmp_path_factory,
+) -> Iterator[tuple[dict[str, tuple[subprocess.Popen, int]], subprocess.Popen]]:
+    """Start every server subprocess this module needs at once.
+
+    Each one spends about 1.5 s importing before it does anything; started one
+    test at a time, that wait was paid once per case. Yields the
+    REAL_SERVER_CASES servers with their ports, and one started with an
+    unknown transport.
     """
     ports = _free_ports(len(REAL_SERVER_CASES))
-    servers: dict[str, tuple[subprocess.Popen, int]] = {}
+    procs: list[subprocess.Popen] = []
     try:
+        real: dict[str, tuple[subprocess.Popen, int]] = {}
         for (case, (transport, bearer_token, _, _)), port in zip(
             REAL_SERVER_CASES.items(), ports, strict=True
         ):
-            env = {
-                **os.environ,
-                "NETBOX_URL": "https://netbox.invalid",
-                "NETBOX_TOKEN": "t",
-                "MCP_TRANSPORT": transport,
-                "MCP_HTTP_HOST": "127.0.0.1",
-                "MCP_HTTP_PORT": str(port),
-                "MCP_HTTP_BEARER_TOKEN": bearer_token,
-                "SENTRY_DSN": "",
-            }
-            server = subprocess.Popen(
-                [sys.executable, "-c", "import netbox_mcp.server as s; s.main()"],
-                env=env,
-                cwd=tmp_path_factory.mktemp("server"),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+            server = _start_server(
+                tmp_path_factory.mktemp("server"),
+                subprocess.DEVNULL,
+                MCP_TRANSPORT=transport,
+                MCP_HTTP_HOST="127.0.0.1",
+                MCP_HTTP_PORT=str(port),
+                MCP_HTTP_BEARER_TOKEN=bearer_token,
             )
-            servers[case] = (server, port)
-        yield servers
+            procs.append(server)
+            real[case] = (server, port)
+        unknown = _start_server(
+            tmp_path_factory.mktemp("server"),
+            subprocess.PIPE,
+            MCP_TRANSPORT="websocket",
+        )
+        procs.append(unknown)
+        yield real, unknown
     finally:
-        for server, _ in servers.values():
-            server.terminate()
-        for server, _ in servers.values():
-            server.wait(timeout=10)
+        for proc in procs:
+            proc.kill()
+        for proc in procs:
+            proc.communicate(timeout=10)
 
 
 @pytest.mark.parametrize("case", REAL_SERVER_CASES)
-def test_real_server_health_endpoint_needs_no_token(monkeypatch, real_servers, case):
+def test_real_server_health_endpoint_needs_no_token(monkeypatch, servers, case):
     """End to end: the server's /health answers the probe, bearer auth or not."""
     transport, bearer_token, mcp_path, method = REAL_SERVER_CASES[case]
-    server, port = real_servers[case]
+    server, port = servers[0][case]
     _configure(monkeypatch, port, transport)
     deadline = time.monotonic() + 30
     while healthcheck.main() != 0:
@@ -247,27 +268,13 @@ def test_real_server_health_endpoint_needs_no_token(monkeypatch, real_servers, c
         assert _status(port, method, mcp_path) == 401
 
 
-def test_unknown_transport_stops_the_server(tmp_path):
+def test_unknown_transport_stops_the_server(servers):
     """A typo must stop the server, not run stdio behind a closed port.
 
     The healthcheck skips non-HTTP transports, so a silent stdio fallback would
     also keep the container reported healthy.
     """
-    env = {
-        **os.environ,
-        "NETBOX_URL": "https://netbox.invalid",
-        "NETBOX_TOKEN": "t",
-        "MCP_TRANSPORT": "websocket",
-        "SENTRY_DSN": "",
-    }
-    proc = subprocess.run(
-        [sys.executable, "-c", "import netbox_mcp.server as s; s.main()"],
-        env=env,
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
+    proc = servers[1]
+    _, stderr = proc.communicate(timeout=60)
     assert proc.returncode == 1
-    assert "Unknown MCP_TRANSPORT 'websocket'" in proc.stderr
+    assert "Unknown MCP_TRANSPORT 'websocket'" in stderr

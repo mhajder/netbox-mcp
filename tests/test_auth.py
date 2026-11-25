@@ -924,13 +924,13 @@ async def test_503_ignores_infinite_retry_after(passthrough_config):
 async def test_token_check_timeout_covers_the_fallback_request(passthrough_config):
     async def slow(request: httpx2.Request) -> httpx2.Response:
         # Each request fits the limit alone; together they do not.
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.06)
         if request.url.path == "/api/authentication-check/":
             return httpx2.Response(404, json={"detail": "Not found."})
         return httpx2.Response(200, json={})
 
     verifier = NetBoxTokenVerifier(
-        passthrough_config, transport=httpx2.MockTransport(slow), timeout=0.5
+        passthrough_config, transport=httpx2.MockTransport(slow), timeout=0.1
     )
 
     with pytest.raises(NetBoxUnavailableError, match="TimeoutError"):
