@@ -29,6 +29,10 @@ class NetBoxConfig(BaseModel):
         gt=0,
         description="Total time allowed for one request, retries included (seconds)",
     )
+    user_agent: str | None = Field(
+        None,
+        description="User-Agent header sent upstream (unset = netbox-mcp/<version>)",
+    )
     branching_enabled: bool = Field(
         False,
         description="Enable netbox-branching support: branch tools and the 'branch' "

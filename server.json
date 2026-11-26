@@ -46,6 +46,12 @@
           "default": "30"
         },
         {
+          "name": "NETBOX_USER_AGENT",
+          "description": "Custom User-Agent header for outbound NetBox HTTP requests",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
           "name": "NETBOX_BRANCHING_ENABLED",
           "description": "Enable netbox-branching support: branch tools and the 'branch' argument (requires the netbox-branching plugin) (true/false)",
           "isRequired": false,
@@ -177,6 +183,12 @@
           "isRequired": false,
           "isSecret": false,
           "default": "30"
+        },
+        {
+          "name": "NETBOX_USER_AGENT",
+          "description": "Custom User-Agent header for outbound NetBox HTTP requests",
+          "isRequired": false,
+          "isSecret": false
         },
         {
           "name": "NETBOX_BRANCHING_ENABLED",
@@ -331,6 +343,12 @@
           "isRequired": false,
           "isSecret": false,
           "default": "30"
+        },
+        {
+          "name": "NETBOX_USER_AGENT",
+          "description": "Custom User-Agent header for outbound NetBox HTTP requests",
+          "isRequired": false,
+          "isSecret": false
         },
         {
           "name": "NETBOX_BRANCHING_ENABLED",

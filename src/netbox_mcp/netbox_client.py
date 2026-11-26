@@ -3,6 +3,8 @@ import hashlib
 import logging
 import os
 import re
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version
 from typing import Any
 from typing import ClassVar
 
@@ -29,6 +31,13 @@ from netbox_mcp.utils import http_port_from_env
 from netbox_mcp.utils import transport_from_env
 
 logger = logging.getLogger(__name__)
+
+try:
+    APP_VERSION = version("netbox-mcp")
+except PackageNotFoundError:
+    APP_VERSION = "0.0.1"
+
+DEFAULT_USER_AGENT = f"netbox-mcp/{APP_VERSION}"
 
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # netbox-branching identifies a branch in X-NetBox-Branch by its schema ID only.
@@ -224,13 +233,20 @@ class NetBoxClient:
             return access_token.token
         return self.config.token
 
+    def _user_agent(self) -> str:
+        return (self.config.user_agent or "").strip() or DEFAULT_USER_AGENT
+
     async def __aenter__(self) -> "NetBoxClient":
         token = self._resolve_token()
         self._identity = token_fingerprint(token) if token else ""
         self._http = build_client(
             self.base_url,
             self.config.timeout,
-            {"Accept": "application/json", **auth_header(token)},
+            {
+                "Accept": "application/json",
+                "User-Agent": self._user_agent(),
+                **auth_header(token),
+            },
             self._transport or shared_transport(self.config.verify_ssl),
             retry=self._retry,
         )
@@ -634,6 +650,7 @@ def get_netbox_config_from_env() -> NetBoxConfig:
         token_passthrough=env_bool("NETBOX_TOKEN_PASSTHROUGH", default=False),
         verify_ssl=env_bool("NETBOX_VERIFY_SSL", default=True),
         timeout=env_float("NETBOX_TIMEOUT", 30),
+        user_agent=env_str("NETBOX_USER_AGENT"),
         branching_enabled=env_bool("NETBOX_BRANCHING_ENABLED", default=False),
         default_branch=env_str("NETBOX_BRANCH"),
         plugin_discovery=env_bool("NETBOX_PLUGIN_DISCOVERY", default=False),

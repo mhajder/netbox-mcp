@@ -471,6 +471,7 @@ The server supports SSL certificate verification and custom timeout settings:
 ```env
 NETBOX_VERIFY_SSL=true    # Enable SSL certificate verification
 NETBOX_TIMEOUT=30         # Total time per request, retries included (seconds)
+# NETBOX_USER_AGENT=      # Optional User-Agent header (default: netbox-mcp/<version>)
 ```
 
 Certificates are verified against the operating system trust store, so a NetBox behind an internal CA works as soon as that CA is trusted by the OS. `SSL_CERT_FILE` or `SSL_CERT_DIR` take precedence when set.
