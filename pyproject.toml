@@ -38,7 +38,7 @@ dependencies = [
 
 [project.optional-dependencies]
 sentry = [
-    "sentry-sdk>=2.70.0,<3",
+    "sentry-sdk>=3.0.1,<4",
 ]
 
 [dependency-groups]
