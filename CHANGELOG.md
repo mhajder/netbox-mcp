@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.4.0](https://github.com/mhajder/netbox-mcp/compare/v0.3.0...v0.4.0) (2026-11-28)
+
+
+### 🚀 Features
+
+* **client:** make outbound User-Agent configurable ([ac42334](https://github.com/mhajder/netbox-mcp/commit/ac42334016615d2496b7dcf355a2e8b66d12cb44))
+
+
+### 🐛 Bug Fixes
+
+* **deps:** support sentry-sdk 3 ([19f247b](https://github.com/mhajder/netbox-mcp/commit/19f247bec6c3dbfa4ae497d0380850d8b04837a3))
+
+
+### 📦 Build
+
+* **deps:** bump dnspython from 2.9.0 to 2.9.2 ([#29](https://github.com/mhajder/netbox-mcp/issues/29)) ([0460c3a](https://github.com/mhajder/netbox-mcp/commit/0460c3af1a2dfedad60692832934a0f2245da0b1))
+* **deps:** bump docker/login-action ([#22](https://github.com/mhajder/netbox-mcp/issues/22)) ([481ff6f](https://github.com/mhajder/netbox-mcp/commit/481ff6f79f8da0f66ddd65f1a83093d234de4c8f))
+* **deps:** bump opentelemetry-api from 1.45.1 to 1.45.2 ([#28](https://github.com/mhajder/netbox-mcp/issues/28)) ([2a8e595](https://github.com/mhajder/netbox-mcp/commit/2a8e595cd80ad7e38eb68fa71463ae3097a85a39))
+* **deps:** bump the docker group across 1 directory with 2 updates ([#33](https://github.com/mhajder/netbox-mcp/issues/33)) ([70a05a3](https://github.com/mhajder/netbox-mcp/commit/70a05a3b39ae26af704f3c4e270000322e67629b))
+* **deps:** bump the uv-dependencies group across 1 directory with 3 updates ([#38](https://github.com/mhajder/netbox-mcp/issues/38)) ([2ceef33](https://github.com/mhajder/netbox-mcp/commit/2ceef332d956e316db5f95995dfe56483fdfc976))
+* **docker:** harden runtime image and precompile bytecode ([5c62073](https://github.com/mhajder/netbox-mcp/commit/5c62073b7fd8e02e5cb4f36834ab3e425fe1f492))
+
+
+### 🧪 Tests
+
+* optimize test suite runtime and scope pre-commit stages ([2962e09](https://github.com/mhajder/netbox-mcp/commit/2962e0990513f077541cdbc770232cf605ec33f6))
+
 ## [0.3.0](https://github.com/mhajder/netbox-mcp/compare/v0.2.1...v0.3.0) (2026-11-07)
 
 
